@@ -1,0 +1,9 @@
+# Folders to Exclude
+__pycache__/
+results/
+shell_files/
+wandb/
+data/
+# Files to Exculde
+*.sh
+*.lprof
