@@ -7,3 +7,4 @@ data/
 # Files to Exculde
 *.sh
 *.lprof
+README.md
