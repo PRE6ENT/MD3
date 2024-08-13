@@ -641,7 +641,7 @@ def get_default_convnet_setting():
 
 
 
-def get_network(model, channel, num_classes, im_size=(32, 32), domainnet=False, dd=False):
+def get_network(model, channel, num_classes, im_size=(32, 32), domainnet=False):
     torch.random.manual_seed(int(time.time() * 1000) % 100000)
     net_width, net_depth, net_act, net_norm, net_pooling = get_default_convnet_setting()
     if domainnet:
@@ -650,7 +650,7 @@ def get_network(model, channel, num_classes, im_size=(32, 32), domainnet=False, 
     if model == 'MLP':
         net = MLP(channel=channel, num_classes=num_classes)
     elif model == 'ConvNet':
-        net = ConvNet(channel=channel, num_classes=num_classes, net_width=net_width, net_depth=net_depth, net_act=net_act, net_norm=net_norm, net_pooling=net_pooling, im_size=im_size, domain_discriminator=dd)
+        net = ConvNet(channel=channel, num_classes=num_classes, net_width=net_width, net_depth=net_depth, net_act=net_act, net_norm=net_norm, net_pooling=net_pooling, im_size=im_size)
     elif model == 'LeNet':
         net = LeNet(channel=channel, num_classes=num_classes)
     elif model == 'AlexNet':

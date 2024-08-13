@@ -59,34 +59,18 @@ class MLP(nn.Module):
 ''' ConvNet '''
 # - Modified !!
 class ConvNet(nn.Module):
-    def __init__(self, channel, num_classes, net_width, net_depth, net_act, net_norm, net_pooling, im_size = (32,32), domain_discriminator=False):
+    def __init__(self, channel, num_classes, net_width, net_depth, net_act, net_norm, net_pooling, im_size = (32,32)):
         super(ConvNet, self).__init__()
 
         self.features, shape_feat = self._make_layers(channel, net_width, net_depth, net_norm, net_act, net_pooling, im_size)
         num_feat = shape_feat[0]*shape_feat[1]*shape_feat[2]
         self.classifier = nn.Linear(num_feat, num_classes)
-        if domain_discriminator:
-            self.discriminator = nn.Sequential(
-                nn.Linear(num_feat, 1024),
-                nn.ReLU(inplace=True),
-                nn.Linear(1024, 2)
-            )
-            self.grl = GradientReversalLayer(lambda_val=1.0)
-        self.domain_discriminator = domain_discriminator
 
     def forward(self, x):
-        if self.domain_discriminator:
-            out = self.features(x)
-            out = out.view(out.size(0), -1)
-            domain_out = self.grl(out)
-            domain_out = self.discriminator(domain_out)
-            out = self.classifier(out)
-            return out, domain_out
-        else: 
-            out = self.features(x)
-            out = out.view(out.size(0), -1)
-            out = self.classifier(out)
-            return out, None
+        out = self.features(x)
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
+        return out, None
 
     def embed(self, x):
         out = self.features(x)

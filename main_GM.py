@@ -24,7 +24,6 @@ def main():
 
     parser = argparse.ArgumentParser(description='Parameter Processing')
     parser.add_argument('--method', type=str, default='DC', help='DC/DSA')
-    parser.add_argument('--domain_discriminator', action='store_true')
     parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset/PACS_by_domain/PACS')
     parser.add_argument('--da_source', type=str, default=None)
     parser.add_argument('--model', type=str, default='ConvNet', help='model')
@@ -151,7 +150,7 @@ def main():
 
                     accs = []
                     for it_eval in range(args.num_eval):
-                        net_eval = get_network(model_eval, channel, num_classes, im_size, args.domain_discriminator).to(args.device) # get a random model
+                        net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device) # get a random model
                         # _, acc_train, acc_test = evaluate_synset(it, it_eval, net_eval, None, None, testloader, args, logs=_log_temp, trainloader=_syn_loader)
                         _, acc_train, acc_test = evaluate_synset(it, it_eval, net_eval, None, None, testloader, args, trainloader=_syn_loader)
                         accs.append(acc_test)
@@ -268,7 +267,7 @@ def main():
 
                                 accs = []
                                 for it_eval in range(args.num_eval):
-                                    net_eval = get_network(model_eval, channel, num_classes, im_size, args.domain_discriminator).to(args.device) # get a random model
+                                    net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device) # get a random model
                                     image_syn_eval, label_syn_eval = copy.deepcopy(image_syn.detach()), copy.deepcopy(label_syn.detach()) # avoid any unaware modification
                                     _, acc_train, acc_test = evaluate_synset(it, it_eval, net_eval, image_syn_eval, label_syn_eval, testloader, args, logs=_log_temp)
                                     accs.append(acc_test)
