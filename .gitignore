@@ -4,6 +4,10 @@ results/
 shell_files/
 wandb/
 data/
+visualization/shell_files/
+visualization/saved_npz/
+visualization/tsne/
+
 # Files to Exculde
 *.sh
 *.lprof
