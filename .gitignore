@@ -6,7 +6,7 @@ wandb/
 data/
 visualization/shell_files/
 visualization/saved_npz/
-visualization/tsne/
+visualization/umap/
 
 # Files to Exculde
 *.sh
