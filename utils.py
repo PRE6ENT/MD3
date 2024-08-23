@@ -37,68 +37,6 @@ class CustomDatasetFolder(torchvision.datasets.DatasetFolder):
         class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
         return classes, class_to_idx
 
-class dataset_pacs_single(torch.utils.data.Dataset):
-    def __init__(self, data_path, trg_domain, transform=None, train=True):
-        self.transform = transform
-        self.data_path = data_path
-        self.pth, self.lbl, self.domain = self.get_list(trg_domain, train)
-
-    def get_list(self, trg_domain, train):
-        pth = []
-        lbl = []
-        domain = []
-        _curr_pth = f'{self.data_path}/{trg_domain}_train.txt' if train else f'{self.data_path}/{trg_domain}_crossval.txt'
-        for line in (open(_curr_pth).readlines()):
-            _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
-            pth.append(_pth)
-            lbl.append(_lbl)
-            domain.append(0)
-        return pth, lbl, domain 
-
-    def __getitem__(self, index):
-        pth, lbl, domain = f'{self.data_path}{self.pth[index]}', self.lbl[index], self.domain[index]
-        img = Image.open(pth).convert('RGB')
-        if self.transform is not None:
-            img = self.transform(img)
-
-        return img, lbl, domain
-
-    def __len__(self):
-        return len(self.pth)
-
-
-# class dataset_pacs_domain(torch.utils.data.Dataset):
-#     def __init__(self, data_path, da_source, trg_domain, transform=None, train=True):
-#         self.transform = transform
-#         self.data_path = data_path
-#         self.pth, self.lbl, self.domain = self.get_list(da_source, trg_domain, train)
-# 
-#     def get_list(self, da_source, trg_domain, train):
-#         domains = [da_source, trg_domain]
-#         pth = []
-#         lbl = []
-#         domain = []
-#         for idx, _domain in enumerate(domains):
-#             _curr_pth = f'{self.data_path}/{_domain}_train.txt'
-#             for line in (open(_curr_pth).readlines()):
-#                 _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
-#                 pth.append(_pth)
-#                 lbl.append(_lbl)
-#                 domain.append(idx)
-#         return pth, lbl, domain 
-# 
-#     def __getitem__(self, index):
-#         pth, lbl, domain = f'{self.data_path}{self.pth[index]}', self.lbl[index], self.domain[index]
-#         img = Image.open(pth).convert('RGB')
-#         if self.transform is not None:
-#             img = self.transform(img)
-# 
-#         return img, lbl, domain, pth
-# 
-#     def __len__(self):
-#         return len(self.pth)
-
-
 class dataset_pacs(torch.utils.data.Dataset):
     def __init__(self, data_path, trg_domain, transform=None, train=True):
         self.transform = transform
@@ -372,7 +310,7 @@ class dataset_vlcs_in_dist(torch.utils.data.Dataset):
             gc.collect()
 
 
-def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None, da_source=None, exp=0, train=False, eval=False):
+def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None, da_source=None, exp=0):
     dst_domain = None
     domainloader = None
     num_domains = 1
@@ -409,45 +347,6 @@ def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None,
         dst_test = datasets.SVHN(data_path, split='test', download=True, transform=transform)
         class_names = [str(c) for c in range(num_classes)]
 
-    # elif dataset == 'PACS_DA':
-    #     channel = 3
-    #     # im_size = (227, 227)
-    #     im_size = (64, 64)
-    #     num_classes = 7
-    #     mean = [0.485, 0.456, 0.406]
-    #     std = [0.229, 0.224, 0.225]
-    #     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-    #     dst_train = dataset_pacs_single(data_path, da_source, transform=transform, train=True)
-    #     dst_test = dataset_pacs_single(data_path, trg_domain, transform=transform, train=False)
-    #     dst_domain = dataset_pacs_domain(data_path, da_source, trg_domain, transform=transform, train=True)
-    #     domainloader = torch.utils.data.DataLoader(dst_domain, batch_size=256, shuffle=True, num_workers=0)
-    #     class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
-
-    elif dataset == 'PACS_by_domain':
-        channel = 3
-        # im_size = (227, 227)
-        im_size = (64, 64)
-        num_classes = 7
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-        dst_train = dataset_pacs_single(data_path, trg_domain, transform=transform, train=True)
-        dst_test = dataset_pacs_single(data_path, trg_domain, transform=transform, train=False)
-        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
-
-    elif dataset == 'PACS':
-        channel = 3
-        # im_size = (227, 227)
-        im_size = (64, 64)
-        num_classes = 7
-        num_domains = 3
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-        dst_train = dataset_pacs(data_path, trg_domain, transform=transform, train=True)
-        dst_test = dataset_pacs(data_path, trg_domain, transform=transform, train=False)
-        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
-
     elif dataset == 'PACS_in_dist':
         channel = 3
         # im_size = (227, 227)
@@ -458,10 +357,8 @@ def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None,
         std = [0.229, 0.224, 0.225]
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
         dst_train, dst_test = None, None
-        if train:
-            dst_train = dataset_pacs_in_dist(data_path, transform=transform, train=True)
-        if eval:
-            dst_test = dataset_pacs_in_dist(data_path, transform=transform, train=False)
+        dst_train = dataset_pacs_in_dist(data_path, transform=transform, train=True)
+        dst_test = dataset_pacs_in_dist(data_path, transform=transform, train=False)
         class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
 
     elif dataset == 'OH_in_dist':
@@ -473,11 +370,8 @@ def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None,
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-        dst_train, dst_test = None, None
-        if train:
-            dst_train = dataset_oh_in_dist(data_path, transform=transform, train=True, crossval=exp)
-        if eval:
-            dst_test = dataset_oh_in_dist(data_path, transform=transform, train=False, crossval=exp)
+        dst_train = dataset_oh_in_dist(data_path, transform=transform, train=True, crossval=exp)
+        dst_test = dataset_oh_in_dist(data_path, transform=transform, train=False, crossval=exp)
         class_names = ['Alarm Clock', 'Backpack', 'Batteries', 'Bed', 'Bike', 'Bottle', 'Bucket', 'Calculator', 'Calendar', 'Candles',
                         'Chair', 'Clipboards', 'Computer', 'Couch', 'Curtains', 'Desk Lamp', 'Drill', 'Eraser', 'Exit Sign', 'Fan',
                         'File Cabinet', 'Flipflops', 'Flowers', 'Folder', 'Fork', 'Glasses', 'Hammer', 'Helmet', 'Kettle', 'Keyboard',
@@ -485,7 +379,6 @@ def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None,
                         'Paper Clip', 'Pen', 'Pencil', 'Postit Notes', 'Printer', 'Push Pin', 'Radio', 'Refrigerator', 'ruler',
                         'Scissors', 'Screwdriver', 'Shelf', 'Sink', 'Sneakers', 'Soda', 'Speaker', 'Spoon', 'Table', 'Telephone',
                         'Toothbrush', 'Toys', 'Trash Can', 'TV', 'Webcam']
-
 
     elif dataset == 'VLCS_in_dist':
         channel = 3
@@ -497,71 +390,9 @@ def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None,
         std = [0.229, 0.224, 0.225]
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
         dst_train, dst_test = None, None
-        if train:
-            dst_train = dataset_vlcs_in_dist(data_path, transform=transform, train=True)
-        if eval:
-            dst_test = dataset_vlcs_in_dist(data_path, transform=transform, train=False)
+        dst_train = dataset_vlcs_in_dist(data_path, transform=transform, train=True)
+        dst_test = dataset_vlcs_in_dist(data_path, transform=transform, train=False)
         class_names = ['bird', 'car', 'chair', 'dog', 'person']
-
-    elif dataset == 'PACS_by_domain_Syn':
-        channel = 3
-        # im_size = (227, 227)
-        im_size = (64, 64)
-        num_classes = 7
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-        dst_train = datasets.ImageFolder(syn_data_path, transform=transform)
-        dst_test = dataset_pacs_single(data_path, trg_domain, transform=transform, train=False)
-        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
-
-    elif dataset == 'PACS_by_domain_GM_Syn_uni':
-        channel = 3
-        # im_size = (227, 227)
-        im_size = (64, 64)
-        num_classes = 7
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-        domains = ['art_painting', 'cartoon', 'photo', 'sketch']
-        domains.remove(trg_domain)
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-        dst_train1 = datasets.ImageFolder(f'{syn_data_path}_{domains[0]}_noise/exp0/iter1000/', transform=transform)
-        dst_train2 = datasets.ImageFolder(f'{syn_data_path}_{domains[1]}_noise/exp0/iter1000/', transform=transform)
-        dst_train3 = datasets.ImageFolder(f'{syn_data_path}_{domains[2]}_noise/exp0/iter1000/', transform=transform)
-        dst_train = torch.utils.data.ConcatDataset([dst_train1, dst_train2, dst_train3])
-        dst_test = dataset_pacs_single(data_path, trg_domain, transform=transform, train=False)
-        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
-
-
-    elif dataset == 'PACS_by_domain_DM_Syn_uni':
-        channel = 3
-        # im_size = (227, 227)
-        im_size = (64, 64)
-        num_classes = 7
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-        domains = ['art_painting', 'cartoon', 'photo', 'sketch']
-        domains.remove(trg_domain)
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-        dst_train1 = datasets.ImageFolder(f'{syn_data_path}_{domains[0]}_noise/exp0/iter20000/', transform=transform)
-        dst_train2 = datasets.ImageFolder(f'{syn_data_path}_{domains[1]}_noise/exp0/iter20000/', transform=transform)
-        dst_train3 = datasets.ImageFolder(f'{syn_data_path}_{domains[2]}_noise/exp0/iter20000/', transform=transform)
-        dst_train = torch.utils.data.ConcatDataset([dst_train1, dst_train2, dst_train3])
-        dst_test = dataset_pacs_single(data_path, trg_domain, transform=transform, train=False)
-        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
-
-
-    elif dataset == 'PACS_Syn':
-        channel = 3
-        # im_size = (227, 227)
-        im_size = (64, 64)
-        num_classes = 7
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
-        dst_train = datasets.ImageFolder(syn_data_path, transform=transform)
-        dst_test = dataset_pacs(data_path, trg_domain, transform=transform, train=False)
-        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
 
     elif dataset == 'CIFAR10':
         channel = 3
@@ -644,6 +475,8 @@ def get_default_convnet_setting():
 def get_network(model, channel, num_classes, im_size=(32, 32), domainnet=False):
     torch.random.manual_seed(int(time.time() * 1000) % 100000)
     net_width, net_depth, net_act, net_norm, net_pooling = get_default_convnet_setting()
+    if im_size[0] == 64:
+        net_depth = 4
     if domainnet:
         net_pooling = 'adaptiveavgpooling'
 
