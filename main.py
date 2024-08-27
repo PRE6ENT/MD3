@@ -8,12 +8,12 @@ import torch.nn as nn
 import pdb
 import random
 from torchvision.utils import save_image
-from utils import get_loops, get_dataset, get_network, get_eval_pool, evaluate_synset, get_daparam, match_loss, get_time, TensorDataset, epoch, DiffAugment, ParamDiffAug
+from utils import get_loops, get_dataset, get_network, get_eval_pool, evaluate_synset, get_daparam, match_loss, get_time, TensorDataset, epoch, DiffAugment, ParamDiffAug, wandb_init_project, base_settings
 
 
 def main():
     parser = argparse.ArgumentParser(description='Parameter Processing')
-    parser.add_argument('--method', type=str, default='DC', help='DC/DSA')
+    parser.add_argument('--method', type=str, default='DC', help='DC/DM/MTT')
     parser.add_argument('--domain_discriminator', action='store_true')
     parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset/PACS_by_domain/PACS')
     parser.add_argument('--da_source', type=str, default=None)
@@ -23,7 +23,6 @@ def main():
     parser.add_argument('--num_exp', type=int, default=5, help='the number of experiments')
     parser.add_argument('--num_eval', type=int, default=20, help='the number of evaluating randomly initialized models')
     parser.add_argument('--epoch_eval_train', type=int, default=300, help='epochs to train a model with synthetic data')
-    parser.add_argument('--Iteration', type=int, default=1000, help='training iterations')
     parser.add_argument('--lr_img', type=float, default=0.1, help='learning rate for updating synthetic images')
     parser.add_argument('--lr_net', type=float, default=0.01, help='learning rate for updating network parameters')
     parser.add_argument('--batch_real', type=int, default=256, help='batch size for real data')
@@ -36,18 +35,31 @@ def main():
     parser.add_argument('--dis_metric', type=str, default='ours', help='distance metric')
     parser.add_argument('--trg_domain', type=str, default='None', help='target domain')
     parser.add_argument('--num_eval_sep', type=int, default=0, help='Used when running the evaluationa separately.')
-    parser.add_argument('--wandb', action='store_true')
-
     parser.add_argument('--num_workers', type=int, default=0, help='number of workers for dataloader')
+
+    # --- # Only Train / Eval Setting # --- #
+    parser.add_argument('--train_only', action='store_true', help='train only')
+    parser.add_argument('--eval_only', action='store_true', help='eval only')
+
+    # --- # Coreset Setting # --- #
     parser.add_argument('--coreset', action='store_true', help='turn on when using coreset selection method or training whole dataset')
     parser.add_argument('--coreset_method', type=str, default=None, help='whole/random/k-center/herding')
     
+    # --- # Wandb Setting # --- #
+    parser.add_argument('--wandb', action='store_true', help='use wandb')
+    parser.add_argument('--wandb_project_name', type=str, default='MD3', help='wandb project name')
+    parser.add_argument('--wandb_name', type=str, default='None')
+    
 
     args = parser.parse_args()
-    # args.outer_loop, args.inner_loop = get_loops(args.ipc)
+    if not args.coreset:
+        args.outer_loop, args.inner_loop = get_loops(args.ipc)
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.dsa_param = ParamDiffAug()
     args.dsa = False if args.dsa_strategy in ['none', 'None'] else True
+    if args.wandb:
+        run = wandb_init_project(args)
+    _iteration, _eval_it_jump = base_settings(args.method)
 
     for exp in range(args.num_exp):
         os.makedirs(f'{args.save_path}/{exp}', exist_ok=True)
@@ -57,7 +69,7 @@ def main():
     
         _log = open(os.path.join(f'{args.save_path}/{exp}', f'log_{exp}.txt'), 'a+')
 
-        eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
+        eval_it_pool = np.arange(0, _iteration+1, _eval_it_jump).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [_iteration]
         print('eval_it_pool: ', eval_it_pool)
         channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(0, args.dataset, args.syn_data_path, args.data_path, args.trg_domain, args.da_source, exp)
         model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)

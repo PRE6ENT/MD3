@@ -45,18 +45,18 @@ class dataset_pacs_in_dist(torch.utils.data.Dataset):
             self.cache_train_pth = data_path + 'train_cache.pkl'
             if not os.path.exists(self.cache_train_pth):
                 self.pth, self.lbl, self.domain = self.get_list(train)
-                self.cache_data()
+                self.cache_data(self.cache_train_pth)
             print("# --- Loading cached data --- #")
             self.cached_data = joblib.load(self.cache_train_pth)
         else:
             self.cache_test_pth = data_path + 'test_cache.pkl'
             if not os.path.exists(self.cache_test_pth):
                 self.pth, self.lbl, self.domain = self.get_list(train)
-                self.cache_data()
+                self.cache_data(self.cache_test_pth)
             print("# --- Loading cached data --- #")
             self.cached_data = joblib.load(self.cache_test_pth)
 
-    def cache_data(self):
+    def cache_data(self, cache_pth):
         images = []
         labels = []
         domains = []
@@ -68,7 +68,7 @@ class dataset_pacs_in_dist(torch.utils.data.Dataset):
             domains.append(domain)
 
         data = {'images': images, 'labels': labels, 'domains': domains}
-        joblib.dump(data, self.cache_pth)
+        joblib.dump(data, cache_pth)
 
     def get_list(self, train):
         domains = ['photo', 'art_painting', 'cartoon', 'sketch']
@@ -98,10 +98,6 @@ class dataset_pacs_in_dist(torch.utils.data.Dataset):
         return pth, lbl, domain 
 
     def __getitem__(self, index):
-        if not os.path.exists(self.cache_pth):
-            print("# --- Caching code broken --- #")
-            exit()
-        
         img = self.cached_data['images'][index]
         lbl = self.cached_data['labels'][index]
         domain = self.cached_data['domains'][index]
@@ -129,18 +125,18 @@ class dataset_oh_in_dist(torch.utils.data.Dataset):
             self.cache_train_pth = data_path + 'train_cache.pkl'
             if not os.path.exists(self.cache_train_pth):
                 self.pth, self.lbl, self.domain = self.get_list(train)
-                self.cache_data()
+                self.cache_data(self.cache_train_pth)
             print("# --- Loading cached data --- #")
             self.cached_data = joblib.load(self.cache_train_pth)
         else:
             self.cache_test_pth = data_path + 'test_cache.pkl'
             if not os.path.exists(self.cache_test_pth):
                 self.pth, self.lbl, self.domain = self.get_list(train)
-                self.cache_data()
+                self.cache_data(self.cache_test_pth)
             print("# --- Loading cached data --- #")
             self.cached_data = joblib.load(self.cache_test_pth)
 
-    def cache_data(self):
+    def cache_data(self, cache_pth):
         images = []
         labels = []
         domains = []
@@ -152,7 +148,7 @@ class dataset_oh_in_dist(torch.utils.data.Dataset):
             domains.append(domain)
 
         data = {'images': images, 'labels': labels, 'domains': domains}
-        joblib.dump(data, self.cache_pth)
+        joblib.dump(data, cache_pth)
 
     def get_list(self, train):
         domains = ['Art', 'Clipart', 'Product', 'Real_World']
@@ -182,10 +178,6 @@ class dataset_oh_in_dist(torch.utils.data.Dataset):
         return pth, lbl, domain
 
     def __getitem__(self, index):
-        if not os.path.exists(self.cache_pth):
-            print("# --- Caching code broken --- #")
-            exit()
-        
         img = self.cached_data['images'][index]
         lbl = self.cached_data['labels'][index]
         domain = self.cached_data['domains'][index]
@@ -212,18 +204,18 @@ class dataset_vlcs_in_dist(torch.utils.data.Dataset):
             self.cache_train_pth = data_path + 'train_cache.pkl'
             if not os.path.exists(self.cache_train_pth):
                 self.pth, self.lbl, self.domain = self.get_list(train)
-                self.cache_data()
+                self.cache_data(self.cache_train_pth)
             print("# --- Loading cached data --- #")
             self.cached_data = joblib.load(self.cache_train_pth)
         else:
             self.cache_test_pth = data_path + 'test_cache.pkl'
             if not os.path.exists(self.cache_test_pth):
                 self.pth, self.lbl, self.domain = self.get_list(train)
-                self.cache_data()
+                self.cache_data(self.cache_test_pth)
             print("# --- Loading cached data --- #")
             self.cached_data = joblib.load(self.cache_test_pth)
 
-    def cache_data(self):
+    def cache_data(self, cache_pth):
         images = []
         labels = []
         domains = []
@@ -235,7 +227,7 @@ class dataset_vlcs_in_dist(torch.utils.data.Dataset):
             domains.append(domain)
 
         data = {'images': images, 'labels': labels, 'domains': domains}
-        joblib.dump(data, self.cache_pth)
+        joblib.dump(data, cache_pth)
 
     def get_list(self, train):
         domains = ['CALTECH', 'LABELME', 'SUN', 'PASCAL']
@@ -265,10 +257,6 @@ class dataset_vlcs_in_dist(torch.utils.data.Dataset):
         return pth, lbl, domain
     
     def __getitem__(self, index):
-        if not os.path.exists(self.cache_pth):
-            print("# --- Caching code broken --- #")
-            exit()
-        
         img = self.cached_data['images'][index]
         lbl = self.cached_data['labels'][index]
         domain = self.cached_data['domains'][index]
