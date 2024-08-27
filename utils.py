@@ -37,63 +37,24 @@ class CustomDatasetFolder(torchvision.datasets.DatasetFolder):
         class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
         return classes, class_to_idx
 
-class dataset_pacs(torch.utils.data.Dataset):
-    def __init__(self, data_path, trg_domain, transform=None, train=True):
-        self.transform = transform
-        self.data_path = data_path
-        self.pth, self.lbl, self.domain = self.get_list(trg_domain, train)
-
-    def get_list(self, trg_domain, train):
-        domains = ['photo', 'art_painting', 'cartoon', 'sketch']
-        assert trg_domain in domains, f'unknown target domain: {trg_domain}, please check'
-        if train:
-            domains.remove(trg_domain)
-            pth = []
-            lbl = []
-            domain = []
-            for idx, _domain in enumerate(domains):
-                _curr_pth = f'{self.data_path}/{_domain}_train.txt'
-                for line in (open(_curr_pth).readlines()):
-                    _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
-                    pth.append(_pth)
-                    lbl.append(_lbl)
-                    domain.append(idx) if train else domain.append(0)
-        else:
-            pth = []
-            lbl = []
-            domain = []
-            _curr_pth = f'{self.data_path}/{trg_domain}_test.txt'
-            for line in (open(_curr_pth).readlines()):
-                _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
-                pth.append(_pth)
-                lbl.append(_lbl)
-                domain.append(idx) if train else domain.append(0)
-
-        return pth, lbl, domain 
-
-    def __getitem__(self, index):
-        pth, lbl, domain = f'{self.data_path}{self.pth[index]}', self.lbl[index], self.domain[index]
-        img = Image.open(pth).convert('RGB')
-        if self.transform is not None:
-            img = self.transform(img)
-
-        return img, lbl, domain
-
-    def __len__(self):
-        return len(self.pth)
-
-
-
 class dataset_pacs_in_dist(torch.utils.data.Dataset):
     def __init__(self, data_path, transform=None, train=True):
         self.transform = transform
         self.data_path = data_path
-        self.cache_pth = data_path[:-1] + '_cache.pkl'
-        if not os.path.exists(self.cache_pth):
-            self.pth, self.lbl, self.domain = self.get_list(train)
-            self.cache_data()
-        print("# --- Loading cached data --- #")
-        self.cached_data = joblib.load(self.cache_pth)
+        if train:
+            self.cache_train_pth = data_path + 'train_cache.pkl'
+            if not os.path.exists(self.cache_train_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data()
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_train_pth)
+        else:
+            self.cache_test_pth = data_path + 'test_cache.pkl'
+            if not os.path.exists(self.cache_test_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data()
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_test_pth)
 
     def cache_data(self):
         images = []
@@ -164,12 +125,20 @@ class dataset_oh_in_dist(torch.utils.data.Dataset):
         self.transform = transform
         self.data_path = data_path
         self.crossval = crossval
-        self.cache_pth = data_path[:-1] + '_cache.pkl'
-        if not os.path.exists(self.cache_pth):
-            self.pth, self.lbl, self.domain = self.get_list(train)
-            self.cache_data()
-        print("# --- Loading cached data --- #")
-        self.cached_data = joblib.load(self.cache_pth)
+        if train:
+            self.cache_train_pth = data_path + 'train_cache.pkl'
+            if not os.path.exists(self.cache_train_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data()
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_train_pth)
+        else:
+            self.cache_test_pth = data_path + 'test_cache.pkl'
+            if not os.path.exists(self.cache_test_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data()
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_test_pth)
 
     def cache_data(self):
         images = []
@@ -239,12 +208,20 @@ class dataset_vlcs_in_dist(torch.utils.data.Dataset):
     def __init__(self, data_path, transform=None, train=True):
         self.transform = transform
         self.data_path = data_path
-        self.cache_pth = data_path[:-1] + '_cache.pkl'
-        if not os.path.exists(self.cache_pth):
-            self.pth, self.lbl, self.domain = self.get_list(train)
-            self.cache_data()
-        print("# --- Loading cached data --- #")
-        self.cached_data = joblib.load(self.cache_pth)
+        if train:
+            self.cache_train_pth = data_path + 'train_cache.pkl'
+            if not os.path.exists(self.cache_train_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data()
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_train_pth)
+        else:
+            self.cache_test_pth = data_path + 'test_cache.pkl'
+            if not os.path.exists(self.cache_test_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data()
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_test_pth)
 
     def cache_data(self):
         images = []
@@ -1059,3 +1036,23 @@ AUGMENT_FNS = {
     'scale': [rand_scale],
     'rotate': [rand_rotate],
 }
+
+def wandb_init_project(args):
+    import wandb
+    assert args.wandb_name != 'None', 'Please specify the project name for wandb.'
+    wandb.login()
+    run = wandb.init(
+        Project=args.wandb_project_name,
+        name=args.wandb_name,
+        config=args,
+    )
+    return run
+
+def base_settings(method_name):
+    if method_name == "DC":
+        return 1000, 500
+    elif method_name == "DM":
+        return 20000, 2000
+    else:
+        print("Unknown method name")
+        exit()
