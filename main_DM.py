@@ -37,12 +37,12 @@ def main():
     parser.add_argument('--weight_class_classifier', type=float, default=1.0, help='weight for class classifier')
     parser.add_argument('--weight_domain_classifier', type=float, default=1.0, help='weight for domain classifier')
     parser.add_argument('--continual', action='store_true', help='continual learning')
-    parser.add_argument('--num_workers', type=int, defualt=0)
+    parser.add_argument('--num_workers', type=int, default=0)
 
 
     args = parser.parse_args()
     args.method = 'DM'
-    args.outer_loop, args.inner_loop = get_loops(args.ipc)
+    # args.outer_loop, args.inner_loop = get_loops(args.ipc)
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.dsa_param = ParamDiffAug()
     args.dsa = False if args.dsa_strategy in ['none', 'None'] else True
@@ -52,14 +52,9 @@ def main():
         assert args.wandb_name != 'None', 'Please specify the wandb_name'
         wandb.login()
         run = wandb.init(
-            project="Domain Condensation Domain Test!",
+            project="MD3",
             name=args.wandb_name,
-            config={
-                "ipc": args.ipc,
-                "learning_rate": args.lr_img,
-                "weight_class_classifier": args.weight_class_classifier,
-                "weight_domain_classifier": args.weight_domain_classifier,
-            },
+            config=args,
         )
 
     os.makedirs(args.save_path, exist_ok=True)
@@ -69,8 +64,7 @@ def main():
     eval_it_pool = np.arange(0, args.Iteration+1, 2000).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
     # eval_it_pool = [args.Iteration] if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
     print('eval_it_pool: ', eval_it_pool)
-    # channel, im_size, num_classes, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.dataset, None, args.data_path, args.trg_domain)
-    channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, dst_domain, testloader, domainloader = get_dataset(args.num_workers, args.dataset, None, args.data_path, args.trg_domain)
+    channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.num_workers, args.dataset, None, args.data_path, args.trg_domain)
     model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
 
     accs_all_exps = dict() # record performances of all experiments
