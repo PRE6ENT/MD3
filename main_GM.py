@@ -55,6 +55,7 @@ def main():
     parser.add_argument('--only_training', action='store_true')
     parser.add_argument('--only_evaluation', action='store_true')
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--syn_data_path', type=str, default='None')
 
     args = parser.parse_args()
     args.outer_loop, args.inner_loop = get_loops(args.ipc)
@@ -86,13 +87,7 @@ def main():
         run = wandb.init(
             project="Domain Condensation Domain Test!",
             name=args.wandb_name,
-            config={
-                "ipc": args.ipc,
-                "learning_rate": args.lr_img,
-                "learning_rate_domain": args.lr_domain_net,
-                "weight_class_classifier": args.weight_class_classifier,
-                "weight_domain_classifier": args.weight_domain_classifier,
-            },
+            config=args,
         )
 
     os.makedirs(args.data_path, exist_ok=True)
@@ -100,25 +95,19 @@ def main():
 
     _log = open(os.path.join(args.save_path, 'log.txt'), 'w')
 
-    eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
-    # eval_it_pool = [args.Iteration] if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
-    print('eval_it_pool: ', eval_it_pool)
-    if args.only_evaluation:
-        channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.num_workers, args.dataset, None, args.data_path, args.trg_domain, args.da_source, eval=True)
-    elif args.only_training:
-        channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.num_workers, args.dataset, None, args.data_path, args.trg_domain, args.da_source, train=True)
-    else:
-        channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(args.num_workers, args.dataset, None, args.data_path, args.trg_domain, args.da_source, eval=True, train=True)
-    model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
-
-    accs_all_exps = dict() # record performances of all experiments
-    for key in model_eval_pool:
-        accs_all_exps[key] = []
-
-    data_save = []
-
     if args.only_evaluation:
         for exp in range(args.num_exp):
+            eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
+            # eval_it_pool = [args.Iteration] if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
+            print('eval_it_pool: ', eval_it_pool)
+            channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(0, args.dataset, args.syn_data_path, args.data_path, args.trg_domain, args.da_source, exp)
+            model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
+
+            accs_all_exps = dict() # record performances of all experiments
+            for key in model_eval_pool:
+                accs_all_exps[key] = []
+
+            data_save = []
             for it in eval_it_pool:
                 while not os.path.exists(f'{args.save_path}/exp{exp}/iter{it}'):
                     print(f"# ----- Waiting For the Training to be Done! Waiting For the PTH {args.save_path}/exp{exp}/iter{it}----- #")
@@ -164,7 +153,21 @@ def main():
         
 
     else:
+
         for exp in range(args.num_exp):
+
+            eval_it_pool = np.arange(0, args.Iteration+1, 500).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
+            # eval_it_pool = [args.Iteration] if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
+            print('eval_it_pool: ', eval_it_pool)
+            channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(0, args.dataset, args.syn_data_path, args.data_path, args.trg_domain, args.da_source, exp)
+            model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
+
+            accs_all_exps = dict() # record performances of all experiments
+            for key in model_eval_pool:
+                accs_all_exps[key] = []
+
+            data_save = []
+
             print('\n================== Exp %d ==================\n '%exp)
             print('Hyper-parameters: \n', args.__dict__)
             print('Evaluation model pool: ', model_eval_pool)

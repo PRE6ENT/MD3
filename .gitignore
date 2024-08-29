@@ -1,5 +1,6 @@
 # Folders to Exclude
 __pycache__/
+old_results/
 results/
 shell_files/
 wandb/
@@ -9,6 +10,7 @@ visualization/saved_npz/
 visualization/umap/
 
 # Files to Exculde
+*.ipynb
 *.sh
 *.lprof
 README.md

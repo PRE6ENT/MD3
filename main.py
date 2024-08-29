@@ -37,6 +37,9 @@ def main():
     parser.add_argument('--num_eval_sep', type=int, default=0, help='Used when running the evaluationa separately.')
     parser.add_argument('--num_workers', type=int, default=0, help='number of workers for dataloader')
 
+    # --- # Domain Information Used Settings # --- #
+    parser.add_argument('--domain_info', action='store_true', help='use domain information')
+
     # --- # Only Train / Eval Setting # --- #
     parser.add_argument('--train_only', action='store_true', help='train only')
     parser.add_argument('--eval_only', action='store_true', help='eval only')
@@ -62,13 +65,6 @@ def main():
     _iteration, _eval_it_jump = base_settings(args.method)
 
     for exp in range(args.num_exp):
-        os.makedirs(f'{args.save_path}/{exp}', exist_ok=True)
-        _arg_log = open(os.path.join(f'{args.save_path}/{exp}', 'args.txt'), 'w')
-        _arg_log.write(str(args.__dict__))
-        _arg_log.close()
-    
-        _log = open(os.path.join(f'{args.save_path}/{exp}', f'log_{exp}.txt'), 'a+')
-
         eval_it_pool = np.arange(0, _iteration+1, _eval_it_jump).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [_iteration]
         print('eval_it_pool: ', eval_it_pool)
         channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader = get_dataset(0, args.dataset, args.syn_data_path, args.data_path, args.trg_domain, args.da_source, exp)
@@ -81,10 +77,14 @@ def main():
 
         data_save = []
 
-        it = 0
+        os.makedirs(f'{args.save_path}/{exp}', exist_ok=True)
+        _arg_log = open(os.path.join(f'{args.save_path}/{exp}', 'args.txt'), 'w')
+        _arg_log.write(str(args.__dict__))
+        _arg_log.close()
+    
+        _log = open(os.path.join(f'{args.save_path}/{exp}', f'log_{exp}.txt'), 'a+')
 
-        # it_eval = args.num_eval_sep
-        # _log.write('Evaluation iteration: %d\n'%it_eval)
+        it = 0 #TODO Check if this is correct
 
         print(f'\n================== Exp {exp} Save PTH {args.save_path}_{exp}  ==================\n ')
         print('Hyper-parameters: \n', args.__dict__)
@@ -93,17 +93,28 @@ def main():
         ''' organize the real dataset '''
         images_all = []
         labels_all = []
-        indices_class = [[] for c in range(num_classes)]
+        if args.domain_info:
+            indices_class = [[[] for _ in range(num_domain)] for _ in range (num_classes)] # When knowing the domain labels
+        else:
+            indices_class = [[] for c in range(num_classes)] # Original Setting
 
         images_all = [torch.unsqueeze(dst_train[i][0], dim=0) for i in range(len(dst_train))]
         labels_all = [dst_train[i][1] for i in range(len(dst_train))]
-        for i, lab in enumerate(labels_all):
-            indices_class[lab].append(i)
+        if args.domain_info:
+            domain_labels_all = [dst_train[i][2] for i in range(len(dst_train))]
+            for i, (lab, domain_lab) in enumerate(zip(labels_all, domain_labels_all)):
+                indices_class[lab][domain_lab].append(i)
+        else:
+            for i, lab in enumerate(labels_all):
+                indices_class[lab].append(i)
         images_all = torch.cat(images_all, dim=0).to(args.device)
         labels_all = torch.tensor(labels_all, dtype=torch.long, device=args.device)
 
         for c in range(num_classes):
-            print('class c = %d: %d real images'%(c, len(indices_class[c])))
+            try:
+                print('class c = %d: %d real images'%(c, len(np.concatenate(indices_class[c]))))
+            except:
+                print('class c = %d: %d real images'%(c, len(indices_class[c])))
 
         def get_images(c, n, domain=False, temp_domain_lbl=-1): # get random n images from class c
             if domain:
@@ -120,8 +131,8 @@ def main():
                     idx_shuffle = np.random.permutation(indices_class[c])[:n]
                 return images_all[idx_shuffle], None
 
-                for ch in range(channel):
-                    print('real images channel %d, mean = %.4f, std = %.4f'%(ch, torch.mean(images_all[:, ch]), torch.std(images_all[:, ch])))
+        for ch in range(channel):
+            print('real images channel %d, mean = %.4f, std = %.4f'%(ch, torch.mean(images_all[:, ch]), torch.std(images_all[:, ch])))
         
         for model_eval in model_eval_pool:
 
