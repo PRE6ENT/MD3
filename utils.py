@@ -4,12 +4,113 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 from scipy.ndimage.interpolation import rotate as scipyrotate
 from networks import MLP, ConvNet, LeNet, AlexNet, AlexNetBN, VGG11, VGG11BN, ResNet18, ResNet18BN_AP, ResNet18BN
 
+
+class pacs_dataset(torch.utils.data.Dataset):
+    def __init__(self, data_path, train=True, transform=None):
+        self.transform = transform
+        self.data_path = data_path
+        self.pth, self.lbl, self.domain = self.get_list(train)
+
+    def get_list(self, train):
+        domains = ['photo', 'art_painting', 'cartoon', 'sketch']
+        pth = []
+        lbl = []
+        domain = []
+        for idx, _domain in enumerate(domains):
+            _curr_pth = f'{self.data_path}/{_domain}_train.txt' if train else f'{self.data_path}/{_domain}_crossval.txt'
+            for line in (open(_curr_pth).readlines()):
+                _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                pth.append(_pth)
+                lbl.append(_lbl)
+                domain.append(idx) if train else domain.append(0)
+        return pth, lbl, domain 
+
+    def __getitem__(self, index):
+        img = Image.open(f'{self.data_path}/{self.pth[index]}').convert('RGB')
+        lbl = self.lbl[index]
+        domain = self.domain[index]
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, lbl, domain
+
+    def __len__(self):
+        return len(self.pth)
+
+
+class oh_dataset(torch.utils.data.Dataset):
+    def __init__(self, data_path, train=True, transform=None, crossval=0):
+        self.transform = transform
+        self.data_path = data_path
+        self.crossval = crossval
+        self.pth, self.lbl, self.domain = self.get_list(train)
+
+    def get_list(self, train):
+        domains = ['Art', 'Clipart', 'Product', 'Real_World']
+        pth = []
+        lbl = []
+        domain = []
+        for idx, _domain in enumerate(domains):
+            _curr_pth = f'{self.data_path}/{_domain}_train_{self.crossval}.txt' if train else f'{self.data_path}/{_domain}_test_{self.crossval}.txt'
+            for line in (open(_curr_pth).readlines()):
+                _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                pth.append(_pth)
+                lbl.append(_lbl)
+                domain.append(idx) if train else domain.append(0)
+        return pth, lbl, domain 
+
+    def __getitem__(self, index):
+        img = Image.open(f'{self.data_path}/{self.pth[index]}').convert('RGB')
+        lbl = self.lbl[index]
+        domain = self.domain[index]
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, lbl, domain
+
+    def __len__(self):
+        return len(self.pth)
+
+
+class vlcs_dataset(torch.utils.data.Dataset):
+    def __init__(self, data_path, train=True, transform=None):
+        self.transform = transform
+        self.data_path = data_path
+        self.pth, self.lbl, self.domain = self.get_list(train)
+
+    def get_list(self, train):
+        domains = ['CALTECH', 'LABELME', 'SUN', 'PASCAL'] 
+        pth = []
+        lbl = []
+        domain = []
+        for idx, _domain in enumerate(domains):
+            _curr_pth = f'{self.data_path}/{_domain}_train.txt' if train else f'{self.data_path}/{_domain}_test.txt'
+            for line in (open(_curr_pth).readlines()):
+                _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                pth.append(_pth)
+                lbl.append(_lbl)
+                domain.append(idx) if train else domain.append(0)
+        return pth, lbl, domain 
+
+    def __getitem__(self, index):
+        img = Image.open(f'{self.data_path}/{self.pth[index]}').convert('RGB')
+        lbl = self.lbl[index]
+        domain = self.domain[index]
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, lbl, domain
+
+    def __len__(self):
+        return len(self.pth)
+
+
 def get_dataset(dataset, data_path):
+    num_domains = 1
     if dataset == 'MNIST':
         channel = 1
         im_size = (28, 28)
@@ -25,7 +126,7 @@ def get_dataset(dataset, data_path):
         channel = 1
         im_size = (28, 28)
         num_classes = 10
-        mean = [0.2861]
+        mean = [0.2860]
         std = [0.3530]
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
         dst_train = datasets.FashionMNIST(data_path, train=True, download=True, transform=transform) # no augmentation
@@ -48,7 +149,7 @@ def get_dataset(dataset, data_path):
         im_size = (32, 32)
         num_classes = 10
         mean = [0.4914, 0.4822, 0.4465]
-        std = [0.2023, 0.1994, 0.2010]
+        std = [0.2470, 0.2435, 0.2616]
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
         dst_train = datasets.CIFAR10(data_path, train=True, download=True, transform=transform) # no augmentation
         dst_test = datasets.CIFAR10(data_path, train=False, download=True, transform=transform)
@@ -58,7 +159,7 @@ def get_dataset(dataset, data_path):
         channel = 3
         im_size = (32, 32)
         num_classes = 100
-        mean = [0.5071, 0.4866, 0.4409]
+        mean = [0.5071, 0.4865, 0.4409]
         std = [0.2673, 0.2564, 0.2762]
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)])
         dst_train = datasets.CIFAR100(data_path, train=True, download=True, transform=transform) # no augmentation
@@ -69,8 +170,8 @@ def get_dataset(dataset, data_path):
         channel = 3
         im_size = (64, 64)
         num_classes = 200
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
+        mean = [0.4802, 0.4481, 0.3975]
+        std = [0.2770, 0.2691, 0.2821]
         data = torch.load(os.path.join(data_path, 'tinyimagenet.pt'), map_location='cpu')
 
         class_names = data['classes']
@@ -93,13 +194,54 @@ def get_dataset(dataset, data_path):
 
         dst_test = TensorDataset(images_val, labels_val)  # no augmentation
 
+    elif dataset == 'PACS':
+        channel = 3
+        im_size = (64, 64)
+        num_classes = 7
+        num_domains = 4
+        mean = [0.7641, 0.7445, 0.7158]
+        std = [0.2897, 0.2996, 0.3297]
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
+        dst_train = pacs_dataset(data_path, train=True, transform=transform) # no augmentation
+        dst_test = pacs_dataset(data_path, train=False, transform=transform)
+        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
+
+    elif dataset == 'OH':
+        channel = 3
+        im_size = (64, 64)
+        num_classes = 65
+        num_domains = 4
+        mean = [0.6308, 0.6077, 0.5826]
+        std = [0.3481, 0.3502, 0.3627]
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
+        dst_train = oh_dataset(data_path, train=True, transform=transform) # no augmentation
+        dst_test = oh_dataset(data_path, train=False, transform=transform)
+        class_names = ['Alarm Clock', 'Backpack', 'Batteries', 'Bed', 'Bike', 'Bottle', 'Bucket', 'Calculator', 'Calendar', 'Candles',
+                        'Chair', 'Clipboards', 'Computer', 'Couch', 'Curtains', 'Desk Lamp', 'Drill', 'Eraser', 'Exit Sign', 'Fan',
+                        'File Cabinet', 'Flipflops', 'Flowers', 'Folder', 'Fork', 'Glasses', 'Hammer', 'Helmet', 'Kettle', 'Keyboard',
+                        'Knives', 'Lamp Shade', 'Laptop', 'Marker', 'Monitor', 'Mop', 'Mouse', 'Mug', 'Notebook', 'Oven', 'Pan',
+                        'Paper Clip', 'Pen', 'Pencil', 'Postit Notes', 'Printer', 'Push Pin', 'Radio', 'Refrigerator', 'ruler',
+                        'Scissors', 'Screwdriver', 'Shelf', 'Sink', 'Sneakers', 'Soda', 'Speaker', 'Spoon', 'Table', 'Telephone',
+                        'Toothbrush', 'Toys', 'Trash Can', 'TV', 'Webcam']
+
+    elif dataset == 'VLCS':
+        channel = 3
+        im_size = (64, 64)
+        num_classes = 5
+        num_domains = 4
+        mean = [0.4681, 0.4501, 0.4226]
+        std = [0.2510, 0.2471, 0.2615]
+        # transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Resize(im_size)])
+        dst_train = vlcs_dataset(data_path, train=True, transform=transform) # no augmentation
+        dst_test = vlcs_dataset(data_path, train=False, transform=transform)
+        class_names = ['bird', 'car', 'chair', 'dog', 'person']
+
     else:
         exit('unknown dataset: %s'%dataset)
-
-
     testloader = torch.utils.data.DataLoader(dst_test, batch_size=256, shuffle=False, num_workers=0)
-    return channel, im_size, num_classes, class_names, mean, std, dst_train, dst_test, testloader
 
+    return channel, im_size, num_classes, class_names, num_domains, mean, std, dst_train, dst_test, testloader
 
 
 class TensorDataset(Dataset):
@@ -114,16 +256,19 @@ class TensorDataset(Dataset):
         return self.images.shape[0]
 
 
-
 def get_default_convnet_setting():
     net_width, net_depth, net_act, net_norm, net_pooling = 128, 3, 'relu', 'instancenorm', 'avgpooling'
     return net_width, net_depth, net_act, net_norm, net_pooling
 
 
-
 def get_network(model, channel, num_classes, im_size=(32, 32)):
     torch.random.manual_seed(int(time.time() * 1000) % 100000)
     net_width, net_depth, net_act, net_norm, net_pooling = get_default_convnet_setting()
+
+    if im_size[0] == 64:
+        net_depth = 4
+    elif im_size[0] == 224:
+        net_depth = 6
 
     if model == 'MLP':
         net = MLP(channel=channel, num_classes=num_classes)
@@ -357,6 +502,7 @@ def evaluate_synset(it_eval, net, images_train, labels_train, testloader, args):
     time_train = time.time() - start
     loss_test, acc_test = epoch('test', testloader, net, optimizer, criterion, args, aug = False)
     print('%s Evaluate_%02d: epoch = %04d train time = %d s train loss = %.6f train acc = %.4f, test acc = %.4f' % (get_time(), it_eval, Epoch, int(time_train), loss_train, acc_train, acc_test))
+    args.log_file.write('%s Evaluate_%02d: epoch = %04d train time = %d s train loss = %.6f train acc = %.4f, test acc = %.4f\n' % (get_time(), it_eval, Epoch, int(time_train), loss_train, acc_train, acc_test))
 
     return net, acc_train, acc_test
 
@@ -533,8 +679,10 @@ def rand_scale(x, param):
             [0,  sy[i], 0],] for i in range(x.shape[0])]
     theta = torch.tensor(theta, dtype=torch.float)
     if param.Siamese: # Siamese augmentation:
-        theta[:] = theta[0]
-    grid = F.affine_grid(theta, x.shape).to(x.device)
+        temp = theta.clone().cuda()
+        temp[:] = theta[0]
+        # theta[:] = theta[0]
+    grid = F.affine_grid(temp, x.shape).to(x.device) if param.Siamese else F.affine_grid(theta, x.shape).to(x.device)
     x = F.grid_sample(x, grid)
     return x
 
@@ -547,8 +695,10 @@ def rand_rotate(x, param): # [-180, 180], 90: anticlockwise 90 degree
         [torch.sin(theta[i]), torch.cos(theta[i]),  0],]  for i in range(x.shape[0])]
     theta = torch.tensor(theta, dtype=torch.float)
     if param.Siamese: # Siamese augmentation:
-        theta[:] = theta[0]
-    grid = F.affine_grid(theta, x.shape).to(x.device)
+        temp = theta.clone().cuda()
+        temp[:] = theta[0]
+        # theta[:] = theta[0]
+    grid = F.affine_grid(temp, x.shape).to(x.device) if param.Siamese else F.affine_grid(theta, x.shape).to(x.device)
     x = F.grid_sample(x, grid)
     return x
 
@@ -558,8 +708,10 @@ def rand_flip(x, param):
     set_seed_DiffAug(param)
     randf = torch.rand(x.size(0), 1, 1, 1, device=x.device)
     if param.Siamese: # Siamese augmentation:
-        randf[:] = randf[0]
-    return torch.where(randf < prob, x.flip(3), x)
+        temp = randf.clone().cuda()
+        temp[:] = randf[0]
+        # randf[:] = randf[0]
+    return torch.where(temp < prob, x.flip(3), x) if param.Siamese else torch.where(randf < prob, x.flip(3), x)
 
 
 def rand_brightness(x, param):
@@ -567,8 +719,10 @@ def rand_brightness(x, param):
     set_seed_DiffAug(param)
     randb = torch.rand(x.size(0), 1, 1, 1, dtype=x.dtype, device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        randb[:] = randb[0]
-    x = x + (randb - 0.5)*ratio
+        temp = randb.clone().cuda()
+        temp[:] = randb[0]
+        # randb[:] = randb[0]
+    x = x + (temp - 0.5)*ratio if param.Siamese else x + (randb - 0.5)*ratio
     return x
 
 
@@ -578,8 +732,10 @@ def rand_saturation(x, param):
     set_seed_DiffAug(param)
     rands = torch.rand(x.size(0), 1, 1, 1, dtype=x.dtype, device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        rands[:] = rands[0]
-    x = (x - x_mean) * (rands * ratio) + x_mean
+        temp = rands.clone().cuda()
+        temp[:] = rands[0]
+        # rands[:] = rands[0]
+    x = (x - x_mean) * (temp * ratio) + x_mean if param.Siamese else (x - x_mean) * (rands * ratio) + x_mean
     return x
 
 
@@ -589,8 +745,10 @@ def rand_contrast(x, param):
     set_seed_DiffAug(param)
     randc = torch.rand(x.size(0), 1, 1, 1, dtype=x.dtype, device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        randc[:] = randc[0]
-    x = (x - x_mean) * (randc + ratio) + x_mean
+        temp = randc.clone().cuda()
+        temp[:] = randc[0]
+        # randc[:] = randc[0]
+    x = (x - x_mean) * (temp + ratio) + x_mean if param.Siamese else (x - x_mean) * (randc + ratio) + x_mean
     return x
 
 
@@ -603,15 +761,19 @@ def rand_crop(x, param):
     set_seed_DiffAug(param)
     translation_y = torch.randint(-shift_y, shift_y + 1, size=[x.size(0), 1, 1], device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        translation_x[:] = translation_x[0]
-        translation_y[:] = translation_y[0]
+        temp_x = translation_x.clone().cuda()
+        temp_y = translation_y.clone().cuda()
+        temp_x[:] = translation_x[0]
+        temp_y[:] = translation_y[0]
+        # translation_x[:] = translation_x[0]
+        # translation_y[:] = translation_y[0]
     grid_batch, grid_x, grid_y = torch.meshgrid(
         torch.arange(x.size(0), dtype=torch.long, device=x.device),
         torch.arange(x.size(2), dtype=torch.long, device=x.device),
         torch.arange(x.size(3), dtype=torch.long, device=x.device),
     )
-    grid_x = torch.clamp(grid_x + translation_x + 1, 0, x.size(2) + 1)
-    grid_y = torch.clamp(grid_y + translation_y + 1, 0, x.size(3) + 1)
+    grid_x = torch.clamp(grid_x + temp_x + 1, 0, x.size(2) + 1) if param.Siamese else torch.clamp(grid_x + translation_x + 1, 0, x.size(2) + 1)
+    grid_y = torch.clamp(grid_y + temp_y + 1, 0, x.size(3) + 1) if param.Siamese else torch.clamp(grid_y + translation_y + 1, 0, x.size(3) + 1)
     x_pad = F.pad(x, [1, 1, 1, 1, 0, 0, 0, 0])
     x = x_pad.permute(0, 2, 3, 1).contiguous()[grid_batch, grid_x, grid_y].permute(0, 3, 1, 2)
     return x
@@ -625,15 +787,19 @@ def rand_cutout(x, param):
     set_seed_DiffAug(param)
     offset_y = torch.randint(0, x.size(3) + (1 - cutout_size[1] % 2), size=[x.size(0), 1, 1], device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        offset_x[:] = offset_x[0]
-        offset_y[:] = offset_y[0]
+        temp_x = offset_x.clone().cuda()
+        temp_y = offset_y.clone().cuda()
+        temp_x[:] = offset_x[0]
+        temp_y[:] = offset_y[0]
+        # offset_x[:] = offset_x[0]
+        # offset_y[:] = offset_y[0]
     grid_batch, grid_x, grid_y = torch.meshgrid(
         torch.arange(x.size(0), dtype=torch.long, device=x.device),
         torch.arange(cutout_size[0], dtype=torch.long, device=x.device),
         torch.arange(cutout_size[1], dtype=torch.long, device=x.device),
     )
-    grid_x = torch.clamp(grid_x + offset_x - cutout_size[0] // 2, min=0, max=x.size(2) - 1)
-    grid_y = torch.clamp(grid_y + offset_y - cutout_size[1] // 2, min=0, max=x.size(3) - 1)
+    grid_x = torch.clamp(grid_x + temp_x - cutout_size[0] // 2, min=0, max=x.size(2) - 1) if param.Siamese else torch.clamp(grid_x + offset_x - cutout_size[0] // 2, min=0, max=x.size(2) - 1)
+    grid_y = torch.clamp(grid_y + temp_y - cutout_size[1] // 2, min=0, max=x.size(3) - 1) if param.Siamese else torch.clamp(grid_y + offset_y - cutout_size[1] // 2, min=0, max=x.size(3) - 1)
     mask = torch.ones(x.size(0), x.size(2), x.size(3), dtype=x.dtype, device=x.device)
     mask[grid_batch, grid_x, grid_y] = 0
     x = x * mask.unsqueeze(1)

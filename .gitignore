@@ -1,7 +1,9 @@
 # Folders to Exclude
 __pycache__/
-old_results/
+old_results_1/
+old_results_2/
 results/
+saved_data/
 shell_files/
 wandb/
 data/
