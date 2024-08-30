@@ -1,35 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pdb
 # Acknowledgement to
 # https://github.com/kuangliu/pytorch-cifar,
 # https://github.com/BIGBALLON/CIFAR-ZOO,
-
-# - GRL Added!
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Function
-
-class GradientReversalFunction(Function):
-    @staticmethod
-    def forward(ctx, x, lambda_val):
-        ctx.lambda_val = lambda_val
-        return x.view_as(x)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return -ctx.lambda_val * grad_output, None
-
-class GradientReversalLayer(nn.Module):
-    def __init__(self, lambda_val=1.0):
-        super(GradientReversalLayer, self).__init__()
-        self.lambda_val = lambda_val
-
-    def forward(self, x):
-        return GradientReversalFunction.apply(x, self.lambda_val)
-
 
 
 ''' Swish activation '''
@@ -56,8 +30,9 @@ class MLP(nn.Module):
         out = self.fc_3(out)
         return out
 
+
+
 ''' ConvNet '''
-# - Modified !!
 class ConvNet(nn.Module):
     def __init__(self, channel, num_classes, net_width, net_depth, net_act, net_norm, net_pooling, im_size = (32,32)):
         super(ConvNet, self).__init__()
@@ -70,7 +45,7 @@ class ConvNet(nn.Module):
         out = self.features(x)
         out = out.view(out.size(0), -1)
         out = self.classifier(out)
-        return out, None
+        return out
 
     def embed(self, x):
         out = self.features(x)
@@ -94,8 +69,6 @@ class ConvNet(nn.Module):
             return nn.MaxPool2d(kernel_size=2, stride=2)
         elif net_pooling == 'avgpooling':
             return nn.AvgPool2d(kernel_size=2, stride=2)
-        elif net_pooling == 'adaptiveavgpooling':
-            return nn.AdaptiveAvgPool2d((8, 8))
         elif net_pooling == 'none':
             return None
         else:
@@ -488,8 +461,7 @@ class ResNet(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        # out = F.avg_pool2d(out, 4)
-        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         out = self.classifier(out)
         return out
@@ -500,13 +472,10 @@ class ResNet(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        # out = F.avg_pool2d(out, 4)
-        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         return out
 
-def ResNet18P(channel, num_classes):
-    return ResNet(BasicBlock, [2,2,2,2], channel=channel, num_classes=num_classes, norm='batchnorm')
 
 def ResNet18BN(channel, num_classes):
     return ResNet(BasicBlock, [2,2,2,2], channel=channel, num_classes=num_classes, norm='batchnorm')
@@ -525,4 +494,3 @@ def ResNet101(channel, num_classes):
 
 def ResNet152(channel, num_classes):
     return ResNet(Bottleneck, [3,8,36,3], channel=channel, num_classes=num_classes)
-

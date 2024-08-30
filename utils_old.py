@@ -4,12 +4,281 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pdb
+import joblib
+import gc
+import torchvision
+from tqdm import tqdm
+from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 from scipy.ndimage.interpolation import rotate as scipyrotate
 from networks import MLP, ConvNet, LeNet, AlexNet, AlexNetBN, VGG11, VGG11BN, ResNet18, ResNet18BN_AP, ResNet18BN
 
-def get_dataset(dataset, data_path):
+class CustomDatasetFolder(torchvision.datasets.DatasetFolder):
+    def __init__(self, root, loader=torchvision.datasets.folder.default_loader, extensions=('jpg', 'png'), transform=None, target_transform=None, is_valid_file=None, dataset=None):
+        self.dataset = dataset
+        super(CustomDatasetFolder, self).__init__(root, loader, extensions, transform=transform,
+                                                  target_transform=target_transform, is_valid_file=is_valid_file)
+    
+    def find_classes(self, directory):
+        if 'OH' in self.dataset:
+            classes = ['Alarm Clock', 'Backpack', 'Batteries', 'Bed', 'Bike', 'Bottle', 'Bucket', 'Calculator', 'Calendar', 'Candles',
+                'Chair', 'Clipboards', 'Computer', 'Couch', 'Curtains', 'Desk Lamp', 'Drill', 'Eraser', 'Exit Sign', 'Fan',
+                'File Cabinet', 'Flipflops', 'Flowers', 'Folder', 'Fork', 'Glasses', 'Hammer', 'Helmet', 'Kettle', 'Keyboard',
+                'Knives', 'Lamp Shade', 'Laptop', 'Marker', 'Monitor', 'Mop', 'Mouse', 'Mug', 'Notebook', 'Oven', 'Pan',
+                'Paper Clip', 'Pen', 'Pencil', 'Postit Notes', 'Printer', 'Push Pin', 'Radio', 'Refrigerator', 'ruler',
+                'Scissors', 'Screwdriver', 'Shelf', 'Sink', 'Sneakers', 'Soda', 'Speaker', 'Spoon', 'TV', 'Table', 'Telephone',
+                'Toothbrush', 'Toys', 'Trash Can', 'Webcam']
+        if 'PACS' in self.dataset:
+            classes = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
+        if 'VLCS' in self.dataset:
+            classes = ['bird', 'car', 'chair', 'dog', 'person']
+        class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
+        return classes, class_to_idx
+
+class dataset_pacs_in_dist(torch.utils.data.Dataset):
+    def __init__(self, data_path, transform=None, train=True):
+        self.transform = transform
+        self.data_path = data_path
+        if train:
+            self.cache_train_pth = data_path + 'train_cache.pkl'
+            if not os.path.exists(self.cache_train_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data(self.cache_train_pth)
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_train_pth)
+        else:
+            self.cache_test_pth = data_path + 'test_cache.pkl'
+            if not os.path.exists(self.cache_test_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data(self.cache_test_pth)
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_test_pth)
+
+    def cache_data(self, cache_pth):
+        images = []
+        labels = []
+        domains = []
+
+        for image_path, label, domain in tqdm(zip(self.pth, self.lbl, self.domain), desc='Caching all images'):
+            img = Image.open(f'{self.data_path}/{image_path}').convert('RGB')
+            images.append(img)
+            labels.append(label)
+            domains.append(domain)
+
+        data = {'images': images, 'labels': labels, 'domains': domains}
+        joblib.dump(data, cache_pth)
+
+    def get_list(self, train):
+        domains = ['photo', 'art_painting', 'cartoon', 'sketch']
+        if train:
+            pth = []
+            lbl = []
+            domain = []
+            for idx, _domain in enumerate(domains):
+                _curr_pth = f'{self.data_path}/{_domain}_train.txt'
+                for line in (open(_curr_pth).readlines()):
+                    _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                    pth.append(_pth)
+                    lbl.append(_lbl)
+                    domain.append(idx) if train else domain.append(0)
+        else:
+            pth = []
+            lbl = []
+            domain = []
+            for idx, _domain in enumerate(domains):
+                _curr_pth = f'{self.data_path}/{_domain}_crossval.txt'
+                for line in (open(_curr_pth).readlines()):
+                    _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                    pth.append(_pth)
+                    lbl.append(_lbl)
+                    domain.append(idx) if train else domain.append(0)
+
+        return pth, lbl, domain 
+
+    def __getitem__(self, index):
+        img = self.cached_data['images'][index]
+        lbl = self.cached_data['labels'][index]
+        domain = self.cached_data['domains'][index]
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, lbl, domain
+
+    def __len__(self):
+        return len(self.cached_data['images'])
+
+    def clear_memory(self):
+        if hasattr(self, 'cached_data'):
+            del self.cached_data
+            gc.collect()
+
+
+class dataset_oh_in_dist(torch.utils.data.Dataset):
+    def __init__(self, data_path, transform=None, train=True, crossval=0):
+        self.transform = transform
+        self.data_path = data_path
+        self.crossval = crossval
+        if train:
+            self.cache_train_pth = data_path + 'train_cache.pkl'
+            if not os.path.exists(self.cache_train_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data(self.cache_train_pth)
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_train_pth)
+        else:
+            self.cache_test_pth = data_path + 'test_cache.pkl'
+            if not os.path.exists(self.cache_test_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data(self.cache_test_pth)
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_test_pth)
+
+    def cache_data(self, cache_pth):
+        images = []
+        labels = []
+        domains = []
+
+        for image_path, label, domain in tqdm(zip(self.pth, self.lbl, self.domain), desc='Caching all images'):
+            img = Image.open(f'{self.data_path}/{image_path}').convert('RGB')
+            images.append(img)
+            labels.append(label)
+            domains.append(domain)
+
+        data = {'images': images, 'labels': labels, 'domains': domains}
+        joblib.dump(data, cache_pth)
+
+    def get_list(self, train):
+        domains = ['Art', 'Clipart', 'Product', 'Real_World']
+        if train:
+            pth = []
+            lbl = []
+            domain = []
+            for idx, _domain in enumerate(domains):
+                _curr_pth = f'{self.data_path}/{_domain}_train_{self.crossval}.txt'
+                for line in (open(_curr_pth).readlines()):
+                    _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                    pth.append(_pth)
+                    lbl.append(_lbl)
+                    domain.append(idx) if train else domain.append(0)
+        else:
+            pth = []
+            lbl = []
+            domain = []
+            for idx, _domain in enumerate(domains):
+                _curr_pth = f'{self.data_path}/{_domain}_test_{self.crossval}.txt'
+                for line in (open(_curr_pth).readlines()):
+                    _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                    pth.append(_pth)
+                    lbl.append(_lbl)
+                    domain.append(idx) if train else domain.append(0)
+
+        return pth, lbl, domain
+
+    def __getitem__(self, index):
+        img = self.cached_data['images'][index]
+        lbl = self.cached_data['labels'][index]
+        domain = self.cached_data['domains'][index]
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, lbl, domain
+
+    def __len__(self):
+        return len(self.cached_data['images'])
+
+    def clear_memory(self):
+        if hasattr(self, 'cached_data'):
+            del self.cached_data
+            gc.collect()
+
+
+class dataset_vlcs_in_dist(torch.utils.data.Dataset):
+    def __init__(self, data_path, transform=None, train=True):
+        self.transform = transform
+        self.data_path = data_path
+        if train:
+            self.cache_train_pth = data_path + 'train_cache.pkl'
+            if not os.path.exists(self.cache_train_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data(self.cache_train_pth)
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_train_pth)
+        else:
+            self.cache_test_pth = data_path + 'test_cache.pkl'
+            if not os.path.exists(self.cache_test_pth):
+                self.pth, self.lbl, self.domain = self.get_list(train)
+                self.cache_data(self.cache_test_pth)
+            print("# --- Loading cached data --- #")
+            self.cached_data = joblib.load(self.cache_test_pth)
+
+    def cache_data(self, cache_pth):
+        images = []
+        labels = []
+        domains = []
+
+        for image_path, label, domain in tqdm(zip(self.pth, self.lbl, self.domain), desc='Caching all images'):
+            img = Image.open(f'{self.data_path}/{image_path}').convert('RGB')
+            images.append(img)
+            labels.append(label)
+            domains.append(domain)
+
+        data = {'images': images, 'labels': labels, 'domains': domains}
+        joblib.dump(data, cache_pth)
+
+    def get_list(self, train):
+        domains = ['CALTECH', 'LABELME', 'SUN', 'PASCAL']
+        if train:
+            pth = []
+            lbl = []
+            domain = []
+            for idx, _domain in enumerate(domains):
+                _curr_pth = f'{self.data_path}/{_domain}_train.txt'
+                for line in (open(_curr_pth).readlines()):
+                    _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                    pth.append(_pth)
+                    lbl.append(_lbl)
+                    domain.append(idx) if train else domain.append(0)
+        else:
+            pth = []
+            lbl = []
+            domain = []
+            for idx, _domain in enumerate(domains):
+                _curr_pth = f'{self.data_path}/{_domain}_test.txt'
+                for line in (open(_curr_pth).readlines()):
+                    _pth, _lbl = line.split(' ')[0], int(line.split(' ')[1])
+                    pth.append(_pth)
+                    lbl.append(_lbl)
+                    domain.append(idx) if train else domain.append(0)
+
+        return pth, lbl, domain
+    
+    def __getitem__(self, index):
+        img = self.cached_data['images'][index]
+        lbl = self.cached_data['labels'][index]
+        domain = self.cached_data['domains'][index]
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, lbl, domain
+
+    def __len__(self):
+        return len(self.cached_data['images'])
+
+    def clear_memory(self):
+        if hasattr(self, 'cached_data'):
+            del self.cached_data
+            gc.collect()
+
+
+def get_dataset(num_workers, dataset, syn_data_path, data_path, trg_domain=None, da_source=None, exp=0):
+    dst_domain = None
+    domainloader = None
+    num_domains = 1
     if dataset == 'MNIST':
         channel = 1
         im_size = (28, 28)
@@ -42,6 +311,53 @@ def get_dataset(dataset, data_path):
         dst_train = datasets.SVHN(data_path, split='train', download=True, transform=transform)  # no augmentation
         dst_test = datasets.SVHN(data_path, split='test', download=True, transform=transform)
         class_names = [str(c) for c in range(num_classes)]
+
+    elif dataset == 'PACS_in_dist':
+        channel = 3
+        # im_size = (227, 227)
+        im_size = (64, 64)
+        num_classes = 7
+        num_domains = 4
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
+        dst_train, dst_test = None, None
+        dst_train = dataset_pacs_in_dist(data_path, transform=transform, train=True)
+        dst_test = dataset_pacs_in_dist(data_path, transform=transform, train=False)
+        class_names = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
+
+    elif dataset == 'OH_in_dist':
+        channel = 3
+        # im_size = (227, 227)
+        im_size = (64, 64)
+        num_classes = 65
+        num_domains = 4
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
+        dst_train = dataset_oh_in_dist(data_path, transform=transform, train=True, crossval=exp)
+        dst_test = dataset_oh_in_dist(data_path, transform=transform, train=False, crossval=exp)
+        class_names = ['Alarm Clock', 'Backpack', 'Batteries', 'Bed', 'Bike', 'Bottle', 'Bucket', 'Calculator', 'Calendar', 'Candles',
+                        'Chair', 'Clipboards', 'Computer', 'Couch', 'Curtains', 'Desk Lamp', 'Drill', 'Eraser', 'Exit Sign', 'Fan',
+                        'File Cabinet', 'Flipflops', 'Flowers', 'Folder', 'Fork', 'Glasses', 'Hammer', 'Helmet', 'Kettle', 'Keyboard',
+                        'Knives', 'Lamp Shade', 'Laptop', 'Marker', 'Monitor', 'Mop', 'Mouse', 'Mug', 'Notebook', 'Oven', 'Pan',
+                        'Paper Clip', 'Pen', 'Pencil', 'Postit Notes', 'Printer', 'Push Pin', 'Radio', 'Refrigerator', 'ruler',
+                        'Scissors', 'Screwdriver', 'Shelf', 'Sink', 'Sneakers', 'Soda', 'Speaker', 'Spoon', 'Table', 'Telephone',
+                        'Toothbrush', 'Toys', 'Trash Can', 'TV', 'Webcam']
+
+    elif dataset == 'VLCS_in_dist':
+        channel = 3
+        # im_size = (227, 227)
+        im_size = (64, 64)
+        num_classes = 5
+        num_domains = 4
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std), transforms.Resize(im_size)])
+        dst_train, dst_test = None, None
+        dst_train = dataset_vlcs_in_dist(data_path, transform=transform, train=True)
+        dst_test = dataset_vlcs_in_dist(data_path, transform=transform, train=False)
+        class_names = ['bird', 'car', 'chair', 'dog', 'person']
 
     elif dataset == 'CIFAR10':
         channel = 3
@@ -96,9 +412,9 @@ def get_dataset(dataset, data_path):
     else:
         exit('unknown dataset: %s'%dataset)
 
+    testloader = torch.utils.data.DataLoader(dst_test, batch_size=64, shuffle=False, num_workers=num_workers) if dst_test is not None else None 
 
-    testloader = torch.utils.data.DataLoader(dst_test, batch_size=256, shuffle=False, num_workers=0)
-    return channel, im_size, num_classes, class_names, mean, std, dst_train, dst_test, testloader
+    return channel, im_size, num_classes, num_domains, class_names, mean, std, dst_train, dst_test, testloader
 
 
 
@@ -121,9 +437,13 @@ def get_default_convnet_setting():
 
 
 
-def get_network(model, channel, num_classes, im_size=(32, 32)):
+def get_network(model, channel, num_classes, im_size=(32, 32), domainnet=False):
     torch.random.manual_seed(int(time.time() * 1000) % 100000)
     net_width, net_depth, net_act, net_norm, net_pooling = get_default_convnet_setting()
+    if im_size[0] == 64:
+        net_depth = 4
+    if domainnet:
+        net_pooling = 'adaptiveavgpooling'
 
     if model == 'MLP':
         net = MLP(channel=channel, num_classes=num_classes)
@@ -141,6 +461,9 @@ def get_network(model, channel, num_classes, im_size=(32, 32)):
         net = VGG11BN(channel=channel, num_classes=num_classes)
     elif model == 'ResNet18':
         net = ResNet18(channel=channel, num_classes=num_classes)
+    elif model == 'ResNet18P':
+        net = torchvision.models.resnet18(pretrained=True)
+        net.fc = torch.nn.Linear(in_features=512, out_features=num_classes, bias=True)
     elif model == 'ResNet18BN_AP':
         net = ResNet18BN_AP(channel=channel, num_classes=num_classes)
     elif model == 'ResNet18BN':
@@ -200,8 +523,8 @@ def get_network(model, channel, num_classes, im_size=(32, 32)):
     gpu_num = torch.cuda.device_count()
     if gpu_num>0:
         device = 'cuda'
-        if gpu_num>1:
-            net = nn.DataParallel(net)
+        # if gpu_num>1:
+        #     net = nn.DataParallel(net)
     else:
         device = 'cpu'
     net = net.to(device)
@@ -274,7 +597,7 @@ def match_loss(gw_syn, gw_real, args):
 
 def get_loops(ipc):
     # Get the two hyper-parameters of outer-loop and inner-loop.
-    # The following values are empirically good.
+    # The following values are empirically good
     if ipc == 1:
         outer_loop, inner_loop = 1, 1
     elif ipc == 10:
@@ -294,15 +617,18 @@ def get_loops(ipc):
 
 
 
-def epoch(mode, dataloader, net, optimizer, criterion, args, aug):
-    loss_avg, acc_avg, num_exp = 0, 0, 0
+def epoch(mode, dataloader, domainloader, net, optimizer, criterion, args, aug, run=None, domain_net=None, optimizer_domain_net=None):
+    loss_avg, acc_avg, num_exp, domain_loss_avg, domain_acc_avg = 0, 0, 0, 0, 0
     net = net.to(args.device)
+    # net = torch.nn.DataParallel(net)
     criterion = criterion.to(args.device)
 
     if mode == 'train':
         net.train()
     else:
         net.eval()
+    
+    domain_iter = iter(domainloader) if domainloader != None else None
 
     for i_batch, datum in enumerate(dataloader):
         img = datum[0].float().to(args.device)
@@ -314,9 +640,33 @@ def epoch(mode, dataloader, net, optimizer, criterion, args, aug):
         lab = datum[1].long().to(args.device)
         n_b = lab.shape[0]
 
-        output = net(img)
-        loss = criterion(output, lab)
+        output = net(img) # img shape -> [1, 3, 227, 227]
+        # output, _ = net(img) # img shape -> [1, 3, 227, 227]
+        try:
+            loss = criterion(output, lab)
+        except:
+            output = output[0]
+            try:
+                loss = criterion(output, lab) * args.weight_class_classifier
+            except AttributeError:
+                loss = criterion(output, lab)
+        if args.wandb and run != None:
+            run.log({'network loss class': loss.item()})
         acc = np.sum(np.equal(np.argmax(output.cpu().data.numpy(), axis=-1), lab.cpu().data.numpy()))
+
+        if domainloader != None and domain_net != None:
+            domain_net = domain_net.to(args.device)
+            if mode == 'train':
+                domain_net.train()
+            else:
+                domain_net.eval() 
+            dd_img, dd_domain_lbl = next(domain_iter)
+            dd_img, dd_domain_lbl = dd_img.float().to(args.device), dd_domain_lbl.long().to(args.device)
+            output_domain, _ = domain_net(dd_img)
+            loss_domain = criterion(output_domain, dd_domain_lbl) * args.weight_domain_classifier
+            loss += loss_domain
+            if args.wandb and run != None:
+                run.log({'network loss domain': loss_domain.item()})
 
         loss_avg += loss.item()*n_b
         acc_avg += acc
@@ -334,28 +684,34 @@ def epoch(mode, dataloader, net, optimizer, criterion, args, aug):
 
 
 
-def evaluate_synset(it_eval, net, images_train, labels_train, testloader, args):
+def evaluate_synset(it, it_eval, net, images_train, labels_train, testloader, args, logs=None, trainloader=None):
     net = net.to(args.device)
-    images_train = images_train.to(args.device)
-    labels_train = labels_train.to(args.device)
+    net = torch.nn.DataParallel(net)
+    if trainloader == None:
+        images_train = images_train.to(args.device)
+        labels_train = labels_train.to(args.device)
+        dst_train = TensorDataset(images_train, labels_train)
+        trainloader = torch.utils.data.DataLoader(dst_train, batch_size=args.batch_train, shuffle=True, num_workers=args.num_workers)
+
     lr = float(args.lr_net)
     Epoch = int(args.epoch_eval_train)
     lr_schedule = [Epoch//2+1]
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=0.0005)
     criterion = nn.CrossEntropyLoss().to(args.device)
 
-    dst_train = TensorDataset(images_train, labels_train)
-    trainloader = torch.utils.data.DataLoader(dst_train, batch_size=args.batch_train, shuffle=True, num_workers=0)
-
     start = time.time()
-    for ep in range(Epoch+1):
-        loss_train, acc_train = epoch('train', trainloader, net, optimizer, criterion, args, aug = True)
+    for ep in tqdm(range(Epoch+1)):
+        loss_train, acc_train = epoch('train', trainloader, None, net, optimizer, criterion, args, aug = True)
         if ep in lr_schedule:
             lr *= 0.1
             optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=0.0005)
 
     time_train = time.time() - start
-    loss_test, acc_test = epoch('test', testloader, net, optimizer, criterion, args, aug = False)
+    loss_test, acc_test = epoch('test', testloader, None, net, optimizer, criterion, args, aug = False)
+    os.makedirs(os.path.join(args.save_path, str(it)), exist_ok=True)
+    torch.save(net.state_dict(), os.path.join(args.save_path, str(it), f'{it_eval}_net_latest.pth'))
+    if logs != None:
+        logs.write('%s Evaluate_%02d: epoch = %04d train time = %d s train loss = %.6f train acc = %.4f, test acc = %.4f\n' % (get_time(), it_eval, Epoch, int(time_train), loss_train, acc_train, acc_test))
     print('%s Evaluate_%02d: epoch = %04d train time = %d s train loss = %.6f train acc = %.4f, test acc = %.4f' % (get_time(), it_eval, Epoch, int(time_train), loss_train, acc_train, acc_test))
 
     return net, acc_train, acc_test
@@ -533,8 +889,10 @@ def rand_scale(x, param):
             [0,  sy[i], 0],] for i in range(x.shape[0])]
     theta = torch.tensor(theta, dtype=torch.float)
     if param.Siamese: # Siamese augmentation:
-        theta[:] = theta[0]
-    grid = F.affine_grid(theta, x.shape).to(x.device)
+        temp = theta.clone().cuda()
+        temp[:] = theta[0]
+        # theta[:] = theta[0]
+    grid = F.affine_grid(temp, x.shape).to(x.device) if param.Siamese else F.affine_grid(theta, x.shape).to(x.device)
     x = F.grid_sample(x, grid)
     return x
 
@@ -547,8 +905,10 @@ def rand_rotate(x, param): # [-180, 180], 90: anticlockwise 90 degree
         [torch.sin(theta[i]), torch.cos(theta[i]),  0],]  for i in range(x.shape[0])]
     theta = torch.tensor(theta, dtype=torch.float)
     if param.Siamese: # Siamese augmentation:
-        theta[:] = theta[0]
-    grid = F.affine_grid(theta, x.shape).to(x.device)
+        temp = theta.clone().cuda()
+        temp[:] = theta[0]
+        # theta[:] = theta[0]
+    grid = F.affine_grid(temp, x.shape).to(x.device) if param.Siamese else F.affine_grid(theta, x.shape).to(x.device)
     x = F.grid_sample(x, grid)
     return x
 
@@ -558,8 +918,10 @@ def rand_flip(x, param):
     set_seed_DiffAug(param)
     randf = torch.rand(x.size(0), 1, 1, 1, device=x.device)
     if param.Siamese: # Siamese augmentation:
-        randf[:] = randf[0]
-    return torch.where(randf < prob, x.flip(3), x)
+        temp = randf.clone().cuda()
+        temp[:] = randf[0]
+        # randf[:] = randf[0]
+    return torch.where(temp < prob, x.flip(3), x) if param.Siamese else torch.where(randf < prob, x.flip(3), x)
 
 
 def rand_brightness(x, param):
@@ -567,8 +929,10 @@ def rand_brightness(x, param):
     set_seed_DiffAug(param)
     randb = torch.rand(x.size(0), 1, 1, 1, dtype=x.dtype, device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        randb[:] = randb[0]
-    x = x + (randb - 0.5)*ratio
+        temp = randb.clone().cuda()
+        temp[:] = randb[0]
+        # randb[:] = randb[0]
+    x = x + (temp - 0.5)*ratio if param.Siamese else x + (randb - 0.5)*ratio
     return x
 
 
@@ -578,8 +942,10 @@ def rand_saturation(x, param):
     set_seed_DiffAug(param)
     rands = torch.rand(x.size(0), 1, 1, 1, dtype=x.dtype, device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        rands[:] = rands[0]
-    x = (x - x_mean) * (rands * ratio) + x_mean
+        temp = rands.clone().cuda()
+        temp[:] = rands[0]
+        # rands[:] = rands[0]
+    x = (x - x_mean) * (temp * ratio) + x_mean if param.Siamese else (x - x_mean) * (rands * ratio) + x_mean
     return x
 
 
@@ -589,8 +955,10 @@ def rand_contrast(x, param):
     set_seed_DiffAug(param)
     randc = torch.rand(x.size(0), 1, 1, 1, dtype=x.dtype, device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        randc[:] = randc[0]
-    x = (x - x_mean) * (randc + ratio) + x_mean
+        temp = randc.clone().cuda()
+        temp[:] = randc[0]
+        # randc[:] = randc[0]
+    x = (x - x_mean) * (temp + ratio) + x_mean if param.Siamese else (x - x_mean) * (randc + ratio) + x_mean
     return x
 
 
@@ -603,15 +971,19 @@ def rand_crop(x, param):
     set_seed_DiffAug(param)
     translation_y = torch.randint(-shift_y, shift_y + 1, size=[x.size(0), 1, 1], device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        translation_x[:] = translation_x[0]
-        translation_y[:] = translation_y[0]
+        temp_x = translation_x.clone().cuda()
+        temp_y = translation_y.clone().cuda()
+        temp_x[:] = translation_x[0]
+        temp_y[:] = translation_y[0]
+        # translation_x[:] = translation_x[0]
+        # translation_y[:] = translation_y[0]
     grid_batch, grid_x, grid_y = torch.meshgrid(
         torch.arange(x.size(0), dtype=torch.long, device=x.device),
         torch.arange(x.size(2), dtype=torch.long, device=x.device),
         torch.arange(x.size(3), dtype=torch.long, device=x.device),
     )
-    grid_x = torch.clamp(grid_x + translation_x + 1, 0, x.size(2) + 1)
-    grid_y = torch.clamp(grid_y + translation_y + 1, 0, x.size(3) + 1)
+    grid_x = torch.clamp(grid_x + temp_x + 1, 0, x.size(2) + 1) if param.Siamese else torch.clamp(grid_x + translation_x + 1, 0, x.size(2) + 1)
+    grid_y = torch.clamp(grid_y + temp_y + 1, 0, x.size(3) + 1) if param.Siamese else torch.clamp(grid_y + translation_y + 1, 0, x.size(3) + 1)
     x_pad = F.pad(x, [1, 1, 1, 1, 0, 0, 0, 0])
     x = x_pad.permute(0, 2, 3, 1).contiguous()[grid_batch, grid_x, grid_y].permute(0, 3, 1, 2)
     return x
@@ -625,15 +997,19 @@ def rand_cutout(x, param):
     set_seed_DiffAug(param)
     offset_y = torch.randint(0, x.size(3) + (1 - cutout_size[1] % 2), size=[x.size(0), 1, 1], device=x.device)
     if param.Siamese:  # Siamese augmentation:
-        offset_x[:] = offset_x[0]
-        offset_y[:] = offset_y[0]
+        temp_x = offset_x.clone().cuda()
+        temp_y = offset_y.clone().cuda()
+        temp_x[:] = offset_x[0]
+        temp_y[:] = offset_y[0]
+        # offset_x[:] = offset_x[0]
+        # offset_y[:] = offset_y[0]
     grid_batch, grid_x, grid_y = torch.meshgrid(
         torch.arange(x.size(0), dtype=torch.long, device=x.device),
         torch.arange(cutout_size[0], dtype=torch.long, device=x.device),
         torch.arange(cutout_size[1], dtype=torch.long, device=x.device),
     )
-    grid_x = torch.clamp(grid_x + offset_x - cutout_size[0] // 2, min=0, max=x.size(2) - 1)
-    grid_y = torch.clamp(grid_y + offset_y - cutout_size[1] // 2, min=0, max=x.size(3) - 1)
+    grid_x = torch.clamp(grid_x + temp_x - cutout_size[0] // 2, min=0, max=x.size(2) - 1) if param.Siamese else torch.clamp(grid_x + offset_x - cutout_size[0] // 2, min=0, max=x.size(2) - 1)
+    grid_y = torch.clamp(grid_y + temp_y - cutout_size[1] // 2, min=0, max=x.size(3) - 1) if param.Siamese else torch.clamp(grid_y + offset_y - cutout_size[1] // 2, min=0, max=x.size(3) - 1)
     mask = torch.ones(x.size(0), x.size(2), x.size(3), dtype=x.dtype, device=x.device)
     mask[grid_batch, grid_x, grid_y] = 0
     x = x * mask.unsqueeze(1)
@@ -648,3 +1024,23 @@ AUGMENT_FNS = {
     'scale': [rand_scale],
     'rotate': [rand_rotate],
 }
+
+def wandb_init_project(args):
+    import wandb
+    assert args.wandb_name != 'None', 'Please specify the project name for wandb.'
+    wandb.login()
+    run = wandb.init(
+        Project=args.wandb_project_name,
+        name=args.wandb_name,
+        config=args,
+    )
+    return run
+
+def base_settings(method_name):
+    if method_name == "DC":
+        return 1000, 500
+    elif method_name == "DM":
+        return 20000, 2000
+    else:
+        print("Unknown method name")
+        exit()
