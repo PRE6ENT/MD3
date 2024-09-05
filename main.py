@@ -56,11 +56,19 @@ def main():
     parser.add_argument('--coreset', action='store_true')
     parser.add_argument('--coreset_type', type=str, help='whole/random/k-center/herding')
 
+    # - Wandb settings
+    parser.add_argument('--wandb', action='store_true')
+    parser.add_argument('--wandb_project_name', type=str, default='MD3')
+    parser.add_argument('--wandb_name', type=str)
+
     args = parser.parse_args()
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.outer_loop, args.inner_loop = get_loops(args.ipc) if not args.coreset else (None, None)
     args.dsa_param = ParamDiffAug()
     args.dsa = False if args.dsa_strategy in ['none', 'None'] else True
+    args.wandb_name = f'{args.method}_{args.dataset}_{args.ipc}'
+    wandb_run = wandb_init_project(args) if args.wandb else None
+
 
 
     #TODO 현재는 모든 것을 고정하고 실험을 진행할 수 있도록 모든 시드를 고정하는 것을 코딩하기 (이게 혹시 모든 eval model들이 같은 결과를 내도록 할 수도 있을까?)
@@ -78,9 +86,7 @@ def main():
 
     eval_it_pool = np.arange(0, args.Iteration+1, 2000).tolist() if args.eval_mode == 'S' or args.eval_mode == 'SS' else [args.Iteration] # The list of iterations when we evaluate models and record results.
     print('eval_it_pool: ', eval_it_pool)
-    start_time = time.time()
     channel, im_size, num_classes, class_names, num_domains, mean, std, dst_train, dst_test, testloader = get_dataset(args.dataset, args.data_path)
-    print('line 81: ', time.time()-start_time)
     model_eval_pool = get_eval_pool(args.eval_mode, args.model, args.model)
     accs_all_exps = dict() # record performances of all experiments (dictionary utilized mainly for multiple models)
     for key in model_eval_pool:
@@ -100,7 +106,6 @@ def main():
 
 
         # - Get real data (modified to save time)
-        start_time = time.time()
         if os.path.exists(f'saved_data/{args.dataset}_images_all.pt') and os.path.exists(f'saved_data/{args.dataset}_labels_all.pt') and os.path.exists(f'saved_data/{args.dataset}_indices_class.pt'):
             images_all = torch.load(f'saved_data/{args.dataset}_images_all.pt')
             labels_all = torch.load(f'saved_data/{args.dataset}_labels_all.pt')
@@ -119,7 +124,6 @@ def main():
             torch.save(images_all, f'saved_data/{args.dataset}_images_all.pt')
             torch.save(labels_all, f'saved_data/{args.dataset}_labels_all.pt')
             torch.save(indices_class, f'saved_data/{args.dataset}_indices_class.pt')
-        print('line 97-114: ', time.time()-start_time)
 
         for c in range(num_classes):
             print('class c = %d: %d real images'%(c, len(indices_class[c])))
@@ -135,13 +139,60 @@ def main():
         # - Train for whole/coreset
         if args.coreset:
             if args.coreset_type == 'random':
-                pass
+                image_for_train = torch.zeros(num_classes*args.ipc, channel, im_size[0], im_size[1]).to(args.device)
+                label_for_train = torch.zeros(num_classes*args.ipc, dtype=torch.long, requires_grad=False, device=args.device)
+                for c in range(num_classes):
+                    image_for_train[c*args.ipc:(c+1)*args.ipc] = get_images(c, args.ipc)
+                    label_for_train[c*args.ipc:(c+1)*args.ipc] = c
 
             elif args.coreset_type == 'k-center':
-                pass
+                image_for_train = torch.zeros(num_classes*args.ipc, channel, im_size[0], im_size[1]).to(args.device)
+                label_for_train = torch.zeros(num_classes*args.ipc, dtype=torch.long, requires_grad=False, device=args.device)
+                net_for_feature = get_network(model_eval_pool[0], channel, num_classes, im_size).cpu()
+                net_for_feature.load_state_dict(torch.load(f'results/coreset/whole_dataset/{args.dataset}/0/0_net_latest.pth'))
+                net_for_feature.eval()
+                with torch.no_grad():
+                    print("# - Net trained on WHOLE DATASET Loaded !!")
+                    for c in range(num_classes):
+                        imgs = images_all[indices_class[c]].cpu()
+                        features = net_for_feature.embed(imgs).detach()
+                        mean = torch.mean(features, dim=0, keepdim=True)
+                        dis = torch.norm(features - mean, dim=1)
+                        rank = torch.argsort(dis)
+                        idx_centers = rank[:1].tolist()
+                        for i in range(args.ipc-1):
+                            feature_centers = features[idx_centers]
+                            if feature_centers.shape[0] == features.shape[1]:
+                                feature_centers = feature_centers.unsqueeze(0)
+                            dis_center = torch.cdist(features, feature_centers)
+                            dis_min, _ = torch.min(dis_center, dim=-1)
+                            id_max = torch.argmax(dis_min).item()
+                            idx_centers.append(id_max)
+                        image_for_train[c*args.ipc:(c+1)*args.ipc] = imgs[idx_centers].to(args.device)
+                        label_for_train[c*args.ipc:(c+1)*args.ipc] = c
 
             elif args.coreset_type == 'herding':
-                pass
+                image_for_train = torch.zeros(num_classes*args.ipc, channel, im_size[0], im_size[1]).to(args.device)
+                label_for_train = torch.zeros(num_classes*args.ipc, dtype=torch.long, requires_grad=False, device=args.device)
+                net_for_feature = get_network(model_eval_pool[0], channel, num_classes, im_size).cpu()
+                net_for_feature.load_state_dict(torch.load(f'results/coreset/whole_dataset/{args.dataset}/0/0_net_latest.pth'))
+                for c in range(num_classes):
+                    imgs = images_all[indices_class[c]].cpu()
+                    features = net_for_feature.embed(imgs).detach()
+                    mean = torch.mean(features, dim=0, keepdim=True)
+                    idx_selected = []
+                    idx_left = np.arange(features.shape[0]).tolist()
+                    for i in range(args.ipc):
+                        if len(idx_selected) > 0:
+                            det = mean*(i+1) - torch.sum(features[idx_selected], dim=0)
+                        else:
+                            det = mean*(i+1)
+                        dis = torch.norm(det-features[idx_left], dim=1)
+                        idx = torch.argmin(dis).item()
+                        idx_selected.append(idx_left[idx])
+                        del idx_left[idx]
+                    image_for_train[c*args.ipc:(c+1)*args.ipc] = imgs[idx_selected].to(args.device)
+                    label_for_train[c*args.ipc:(c+1)*args.ipc] = c
 
             else: # whole dataset
                 image_for_train = images_all
@@ -151,12 +202,13 @@ def main():
             args.log_file = open(f'{args.save_path}/{exp}/log_{"_".join(list(map(str, time.localtime()[0:-4])))}.txt', 'w+')
             for it_eval in range(args.num_eval):
                 net_eval = get_network(model_eval_pool[0], channel, num_classes, im_size).to(args.device) 
-                _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_for_train, label_for_train, testloader, args)
+                _, acc_train, acc_test, loss_train, loss_test = evaluate_synset(exp, it_eval, net_eval, image_for_train, label_for_train, testloader, args)
                 accs.append(acc_test)
             print(f'\n\n# - {args.coreset_type} {args.dataset}\n')
             print(f'evaluate {len(accs)} random {model_eval_pool[0]}, mean = {np.mean(accs)*100:.4f} std = {np.std(accs)*100:.4f}\n\n')
             args.log_file.write(f'\n\n# - {args.coreset_type} {args.dataset}\n')
             args.log_file.write(f'evaluate {len(accs)} random {model_eval_pool[0]}, mean = {np.mean(accs)*100:.4f} std = {np.std(accs)*100:.4f}\n\n')
+            args.log_file.close()
 
         # - Train for general dataset condensation
         else:
@@ -186,12 +238,28 @@ def main():
                         # print('DSA augmentation strategy: \n', args.dsa_strategy)
                         # print('DSA augmentation parameters: \n', args.dsa_param.__dict__)
                         accs = []
+                        temp_train_loss = []
+                        temp_train_acc = []
+                        temp_test_loss = []
+                        args.log_file = open(f'{args.save_path}/{exp}/log_{it}_{"_".join(list(map(str, time.localtime()[0:-4])))}.txt', 'w+')
                         for it_eval in range(args.num_eval):
                             net_eval = get_network(model_eval, channel, num_classes, im_size).to(args.device) 
                             image_syn_eval, label_syn_eval = copy.deepcopy(image_syn.detach()), copy.deepcopy(label_syn.detach())
-                            _, acc_train, acc_test = evaluate_synset(it_eval, net_eval, image_syn_eval, label_syn_eval, testloader, args)
+                            _, acc_train, acc_test, loss_train, loss_test = evaluate_synset(exp, it_eval, net_eval, image_syn_eval, label_syn_eval, testloader, args)
                             accs.append(acc_test)
-                        print('Evaluate %d random %s, mean = %.4f std = %.4f\n-------------------------'%(len(accs), model_eval, np.mean(accs), np.std(accs)))
+                            temp_train_loss.append(loss_train)
+                            temp_train_acc.append(acc_train)
+                            temp_test_loss.append(loss_test)
+                        if wandb_run != None:
+                            wandb_run.log({ "Train Loss": np.mean(temp_train_loss),
+                                            "Train Accuracy": np.mean(temp_train_acc)*100, 
+                                            "Test Loss:": np.mean(temp_test_loss),
+                                            "Test Accuracy": np.mean(accs)*100}, step=it)
+                        print(f'\n\n# - {args.method} {args.dataset}\n')
+                        print(f'evaluate {len(accs)} random {model_eval_pool[0]}, mean = {np.mean(accs)*100:.4f} std = {np.std(accs)*100:.4f}\n\n')
+                        args.log_file.write(f'\n\n# - {args.method} {args.dataset}\n')
+                        args.log_file.write(f'evaluate {len(accs)} random {model_eval_pool[0]}, mean = {np.mean(accs)*100:.4f} std = {np.std(accs)*100:.4f}\n\n')
+                        args.log_file.close()
                         if it == args.Iteration:
                             accs_all_exps[model_eval] += accs
 
@@ -202,9 +270,9 @@ def main():
                         image_syn_vis[:, ch] = image_syn_vis[:, ch]  * std[ch] + mean[ch]
                     image_syn_vis[image_syn_vis<0] = 0.0
                     image_syn_vis[image_syn_vis>1] = 1.0
-                    for sample_idx in range(image_syn_vis.shape[0]):#TODO Check the shape -> For the saving process sample_idx // args.ipc?
-                        os.makedirs(f'{args.save_path}/exp{exp}/iter{it}/{class_names[sample_idx // args.ipc]}', exist_ok=True) #TODO Check the path
-                        save_image(image_syn_vis[sample_idx], f'{args.save_path}/exp{exp}/iter{it}/{class_names[sample_idx // args.ipc]}/sample{sample_idx}_{sample_idx}.png')
+                    for sample_idx in range(image_syn_vis.shape[0]): #TODO Check the shape -> For the saving process sample_idx // args.ipc?
+                        os.makedirs(f'{args.save_path}/{exp}/{it}/{class_names[sample_idx // args.ipc]}', exist_ok=True) #TODO Check the path
+                        save_image(image_syn_vis[sample_idx], f'{args.save_path}/{exp}/{it}/{class_names[sample_idx // args.ipc]}/sample{sample_idx}_{sample_idx}.png')
 
 
                 # - Continue training synthetic data 
@@ -212,7 +280,7 @@ def main():
                 net.train()
                 for param in list(net.parameters()):
                     param.requires_grad = False
-                embed = net.module.embed if torch.cuda.device_count() > 1 else net.embed # for GPU parallel
+                embed = net.module.embed if torch.cuda.device_count() > 1 else net.embed
                 loss_avg = 0
 
 
@@ -265,9 +333,11 @@ def main():
                 optimizer_img.step()
                 loss_avg += loss.item()
                 loss_avg /= (num_classes)
+                if wandb_run != None:
+                    wandb_run.log({'Embedding Loss': loss_avg}, step=it)
                 if it%10 == 0:
                     print('%s iter = %05d, loss = %.4f' % (get_time(), it, loss_avg))
-                if it == args.Iteration: #TODO Save more often in case the GPU crashes
+                if it == args.Iteration:
                     data_save.append([copy.deepcopy(image_syn.detach().cpu()), copy.deepcopy(label_syn.detach().cpu())])
                     torch.save({'data': data_save, 'accs_all_exps': accs_all_exps, }, os.path.join(args.save_path, 'res_%s_%s_%s_%dipc.pt'%(args.method, args.dataset, args.model, args.ipc)))
 

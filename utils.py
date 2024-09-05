@@ -1,5 +1,6 @@
 import time
 import os
+import pdb
 import numpy as np
 import torch
 import torch.nn as nn
@@ -433,8 +434,8 @@ def get_loops(ipc):
     elif ipc == 50:
         outer_loop, inner_loop = 50, 10
     else:
-        outer_loop, inner_loop = 0, 0
-        exit('loop hyper-parameters are not defined for %d ipc'%ipc)
+        outer_loop, inner_loop = 50, 10
+        # exit('loop hyper-parameters are not defined for %d ipc'%ipc)
     return outer_loop, inner_loop
 
 
@@ -479,7 +480,7 @@ def epoch(mode, dataloader, net, optimizer, criterion, args, aug):
 
 
 
-def evaluate_synset(it_eval, net, images_train, labels_train, testloader, args):
+def evaluate_synset(it, it_eval, net, images_train, labels_train, testloader, args):
     net = net.to(args.device)
     images_train = images_train.to(args.device)
     labels_train = labels_train.to(args.device)
@@ -498,13 +499,14 @@ def evaluate_synset(it_eval, net, images_train, labels_train, testloader, args):
         if ep in lr_schedule:
             lr *= 0.1
             optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=0.0005)
-
+    
     time_train = time.time() - start
     loss_test, acc_test = epoch('test', testloader, net, optimizer, criterion, args, aug = False)
+    torch.save(net.state_dict(), os.path.join(args.save_path, str(it), f'{it_eval}_net_latest.pth'))
     print('%s Evaluate_%02d: epoch = %04d train time = %d s train loss = %.6f train acc = %.4f, test acc = %.4f' % (get_time(), it_eval, Epoch, int(time_train), loss_train, acc_train, acc_test))
     args.log_file.write('%s Evaluate_%02d: epoch = %04d train time = %d s train loss = %.6f train acc = %.4f, test acc = %.4f\n' % (get_time(), it_eval, Epoch, int(time_train), loss_train, acc_train, acc_test))
 
-    return net, acc_train, acc_test
+    return net, acc_train, acc_test, loss_train, loss_test
 
 
 
@@ -814,3 +816,13 @@ AUGMENT_FNS = {
     'scale': [rand_scale],
     'rotate': [rand_rotate],
 }
+
+def wandb_init_project(args):
+    import wandb
+    wandb.login()
+    run = wandb.init(
+        project=args.wandb_project_name,
+        name=args.wandb_name,
+        config=args,
+    )
+    return run
